@@ -133,19 +133,23 @@ class SyncOrchestrator:
                 stats["errors"].append(f"Deal upsert failed: {e}")
                 logger.exception("Failed to upsert deals")
 
-        # Log if deal upsert returned fewer results than expected
+        # Detect skipped deals via set-difference (batch API doesn't guarantee order)
         if len(deal_results) < len(bundles):
-            skipped_count = len(bundles) - len(deal_results)
-            logger.warning(
-                "Deal upsert returned %d results for %d bundles (%d skipped)",
-                len(deal_results), len(bundles), skipped_count,
-            )
-            skipped_opps = [
-                b.opportunity.id for b in bundles[len(deal_results):]
-                if b.opportunity.id
-            ]
-            for opp_id in skipped_opps:
-                stats["errors"].append(f"Deal upsert skipped: {opp_id}")
+            returned_ids = {
+                r.get("properties", {}).get("govwin_opp_id")
+                for r in deal_results
+            }
+            submitted_ids = {
+                b.opportunity.id for b in bundles if b.opportunity.id
+            }
+            skipped_ids = submitted_ids - returned_ids
+            if skipped_ids:
+                logger.warning(
+                    "Deal upsert returned %d results for %d bundles, skipped: %s",
+                    len(deal_results), len(bundles), skipped_ids,
+                )
+                for opp_id in skipped_ids:
+                    stats["errors"].append(f"Deal upsert skipped: {opp_id}")
 
         # 4. Create associations (batched)
         deal_company_assocs: list[tuple[str, str]] = []
