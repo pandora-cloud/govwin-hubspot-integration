@@ -1,0 +1,189 @@
+{
+  "Comment": "GovWin-to-HubSpot sync workflow",
+  "StartAt": "Authenticate",
+  "States": {
+    "Authenticate": {
+      "Type": "Task",
+      "Resource": "${authenticate_arn}",
+      "ResultPath": "$.auth",
+      "Next": "DiscoverChanges",
+      "Retry": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "IntervalSeconds": 10,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "HandleError"
+        }
+      ]
+    },
+    "DiscoverChanges": {
+      "Type": "Task",
+      "Resource": "${discover_changes_arn}",
+      "ResultPath": "$.discovery",
+      "Next": "CheckForChanges",
+      "Retry": [
+        {
+          "ErrorEquals": ["GovWinRateLimitError"],
+          "IntervalSeconds": 300,
+          "MaxAttempts": 5,
+          "BackoffRate": 1.5
+        },
+        {
+          "ErrorEquals": ["States.ALL"],
+          "IntervalSeconds": 10,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "HandleError"
+        }
+      ]
+    },
+    "CheckForChanges": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.discovery.opportunities_count",
+          "NumericEquals": 0,
+          "Next": "NoChanges"
+        }
+      ],
+      "Default": "ProcessOpportunities"
+    },
+    "ProcessOpportunities": {
+      "Type": "Map",
+      "ItemsPath": "$.discovery.opportunity_batches",
+      "MaxConcurrency": ${max_concurrency},
+      "Iterator": {
+        "StartAt": "FetchBatchDetails",
+        "States": {
+          "FetchBatchDetails": {
+            "Type": "Task",
+            "Resource": "${fetch_opp_details_arn}",
+            "ResultPath": "$",
+            "Next": "SyncBatchToHubSpot",
+            "Retry": [
+              {
+                "ErrorEquals": ["GovWinRateLimitError"],
+                "IntervalSeconds": 60,
+                "MaxAttempts": 10,
+                "BackoffRate": 1.5
+              },
+              {
+                "ErrorEquals": ["States.ALL"],
+                "IntervalSeconds": 10,
+                "MaxAttempts": 3,
+                "BackoffRate": 2
+              }
+            ],
+            "Catch": [
+              {
+                "ErrorEquals": ["States.ALL"],
+                "ResultPath": "$",
+                "Next": "BatchFailed"
+              }
+            ]
+          },
+          "SyncBatchToHubSpot": {
+            "Type": "Task",
+            "Resource": "${sync_to_hubspot_arn}",
+            "ResultPath": "$",
+            "End": true,
+            "Retry": [
+              {
+                "ErrorEquals": ["HubSpotRateLimitError"],
+                "IntervalSeconds": 15,
+                "MaxAttempts": 5,
+                "BackoffRate": 2
+              },
+              {
+                "ErrorEquals": ["States.ALL"],
+                "IntervalSeconds": 10,
+                "MaxAttempts": 3,
+                "BackoffRate": 2
+              }
+            ],
+            "Catch": [
+              {
+                "ErrorEquals": ["States.ALL"],
+                "ResultPath": "$",
+                "Next": "BatchFailed"
+              }
+            ]
+          },
+          "BatchFailed": {
+            "Type": "Pass",
+            "Result": {"status": "failed"},
+            "End": true
+          }
+        }
+      },
+      "ResultPath": "$.sync_results",
+      "Next": "UpdateSyncState",
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "HandleError"
+        }
+      ]
+    },
+    "UpdateSyncState": {
+      "Type": "Task",
+      "Resource": "${update_sync_state_arn}",
+      "ResultPath": "$.state_update",
+      "Next": "SyncComplete",
+      "Retry": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "IntervalSeconds": 5,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "HandleError"
+        }
+      ]
+    },
+    "SyncComplete": {
+      "Type": "Succeed"
+    },
+    "NoChanges": {
+      "Type": "Succeed",
+      "Comment": "No opportunities have changed since last sync"
+    },
+    "HandleError": {
+      "Type": "Task",
+      "Resource": "${handle_error_arn}",
+      "Next": "FailExecution",
+      "Retry": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "IntervalSeconds": 5,
+          "MaxAttempts": 2,
+          "BackoffRate": 2
+        }
+      ]
+    },
+    "FailExecution": {
+      "Type": "Fail",
+      "Error": "SyncFailed",
+      "Cause": "See HandleError output for details"
+    }
+  }
+}
