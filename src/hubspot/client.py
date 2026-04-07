@@ -9,7 +9,13 @@ from typing import Any
 import boto3
 import httpx
 from botocore.exceptions import ClientError
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
+from tenacity import (
+    retry,
+    retry_if_exception,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_exponential,
+)
 
 from src.config import AppConfig
 from src.hubspot.properties import (
@@ -89,7 +95,12 @@ class HubSpotClient:
         }
 
     @retry(
-        retry=retry_if_exception_type((HubSpotRateLimitError, httpx.RequestError)),
+        retry=(
+            retry_if_exception_type((HubSpotRateLimitError, httpx.RequestError))
+            | retry_if_exception(
+                lambda e: isinstance(e, HubSpotAPIError) and e.status_code in (401, 502, 503, 504)
+            )
+        ),
         wait=wait_exponential(multiplier=2, min=2, max=30),
         stop=stop_after_attempt(5),
         reraise=True,
@@ -106,10 +117,9 @@ class HubSpotClient:
         )
 
         if response.status_code == 401:
+            # Clear token and raise so tenacity retries with fresh credentials
             self._token = None
-            response = self._http.request(
-                method, url, headers=self._headers(), json=json_data, params=params
-            )
+            raise HubSpotAPIError("Token expired", status_code=401)
 
         if response.status_code == 429:
             logger.warning("HubSpot rate limit hit (429)")

@@ -46,7 +46,7 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
     errors: list[str] = []
 
     with GovWinClient(config, auth) as client:
-        for ref in opp_refs:
+        for ref_idx, ref in enumerate(opp_refs):
             opp_id = ref.get("id") if isinstance(ref, dict) else None
             if not opp_id:
                 continue
@@ -64,12 +64,10 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
                     # Check payload size to stay within Step Function limits
                     payload_size = len(json.dumps(bundles))
                     if payload_size > MAX_PAYLOAD_BYTES:
-                        # Track which IDs were skipped due to payload truncation
-                        idx = opp_refs.index(ref) + 1
-                        processed_ids = {r.get("id") for r in opp_refs[:idx]}
+                        # Track skipped IDs using enumerate index (not list.index)
                         skipped = [
-                            r.get("id") for r in opp_refs
-                            if r.get("id") and r.get("id") not in processed_ids
+                            r.get("id") for r in opp_refs[ref_idx + 1:]
+                            if r.get("id")
                         ]
                         for sid in skipped:
                             errors.append(f"Skipped {sid}: payload size limit exceeded")
