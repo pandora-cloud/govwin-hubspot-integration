@@ -1,93 +1,178 @@
-# govwin-hubspot-integration
+# GovWin-to-HubSpot Integration
 
+Automatically sync government contracting opportunities from [Deltek GovWin IQ](https://iq.govwin.com) into [HubSpot CRM](https://www.hubspot.com/), with fields pre-populated for downstream submission to [AWS Partner Central](https://partnercentral.awspartner.com/) via the SaaSify ACE Connector.
 
-
-## Getting started
-
-To make it easy for you to get started with GitLab, here's a list of recommended next steps.
-
-Already a pro? Just edit this README.md and make it your own. Want to make it easy? [Use the template at the bottom](#editing-this-readme)!
-
-## Add your files
-
-* [Create](https://docs.gitlab.com/user/project/repository/web_editor/#create-a-file) or [upload](https://docs.gitlab.com/user/project/repository/web_editor/#upload-a-file) files
-* [Add files using the command line](https://docs.gitlab.com/topics/git/add_files/#add-files-to-a-git-repository) or push an existing Git repository with the following command:
+## Pipeline Overview
 
 ```
-cd existing_repo
-git remote add origin https://gitlab.com/pandora-cloud/internal/govwin-hubspot-integration.git
-git branch -M main
-git push -uf origin main
+Deltek GovWin IQ ──(this integration)──> HubSpot CRM ──(SaaSify ACE)──> AWS Partner Central
+     [auto sync]                          [review]          [submit]
 ```
 
-## Integrate with your tools
+1. **GovWin -> HubSpot** (automated): Opportunities, agencies, and contacts sync on a schedule
+2. **HubSpot -> AWS Partner Central** (manual): Review deal in HubSpot, fill 3 fields, submit via SaaSify ACE Connector
 
-* [Set up project integrations](https://gitlab.com/pandora-cloud/internal/govwin-hubspot-integration/-/settings/integrations)
+## What It Does
 
-## Collaborate with your team
+- Syncs GovWin opportunities as HubSpot **Deals** with 25+ custom properties
+- Syncs government entities as HubSpot **Companies**
+- Syncs opportunity contacts as HubSpot **Contacts**
+- Creates **associations** between deals, companies, and contacts
+- **Incremental sync** -- only processes opportunities that changed since last run
+- Pre-populates **9 of 12 AWS ACE mandatory fields** for co-selling readiness
+- Respects rate limits on both GovWin (4,000 calls/hr) and HubSpot (100 req/10s)
 
-* [Invite team members and collaborators](https://docs.gitlab.com/user/project/members/)
-* [Create a new merge request](https://docs.gitlab.com/user/project/merge_requests/creating_merge_requests/)
-* [Automatically close issues from merge requests](https://docs.gitlab.com/user/project/issues/managing_issues/#closing-issues-automatically)
-* [Enable merge request approvals](https://docs.gitlab.com/user/project/merge_requests/approvals/)
-* [Set auto-merge](https://docs.gitlab.com/user/project/merge_requests/auto_merge/)
+## Architecture
 
-## Test and Deploy
+Runs on AWS using serverless infrastructure managed by Terraform:
 
-Use the built-in continuous integration in GitLab.
+- **AWS Step Functions** orchestrates the multi-step sync workflow
+- **AWS Lambda** (Python 3.12) executes each step
+- **Amazon DynamoDB** tracks sync state and ID mappings
+- **AWS Secrets Manager** stores API credentials securely
+- **Amazon EventBridge** triggers sync on a configurable schedule (default: every 4 hours)
+- **Amazon SNS** sends sync summary and error notifications
+- **Amazon SQS** dead letter queue for failed operations
 
-* [Get started with GitLab CI/CD](https://docs.gitlab.com/ci/quick_start/)
-* [Analyze your code for known vulnerabilities with Static Application Security Testing (SAST)](https://docs.gitlab.com/user/application_security/sast/)
-* [Deploy to Kubernetes, Amazon EC2, or Amazon ECS using Auto Deploy](https://docs.gitlab.com/topics/autodevops/requirements/)
-* [Use pull-based deployments for improved Kubernetes management](https://docs.gitlab.com/user/clusters/agent/)
-* [Set up protected environments](https://docs.gitlab.com/ci/environments/protected_environments/)
+Estimated AWS cost: **~$6/month** at moderate volume (1,000 opportunities).
 
-***
+## Prerequisites
 
-# Editing this README
+- **Deltek GovWin IQ** subscription with WSAPI access (client ID + secret + user credentials)
+- **HubSpot** account (Professional or Enterprise for custom properties)
+- **AWS** account with permissions to create Lambda, Step Functions, DynamoDB, Secrets Manager, EventBridge, SNS, SQS, IAM, and CloudWatch resources
+- **Terraform** >= 1.5 installed locally
+- **Python** >= 3.12 (for local development)
+- (Optional) **SaaSify AWS ACE Connector** installed in HubSpot for AWS Partner Central integration
 
-When you're ready to make this README your own, just edit this file and use the handy template below (or feel free to structure it however you want - this is just a starting point!). Thanks to [makeareadme.com](https://www.makeareadme.com/) for this template.
+## Quick Start
 
-## Suggestions for a good README
+### 1. Clone the repository
 
-Every project is different, so consider which of these sections apply to yours. The sections used in the template are suggestions for most open source projects. Also keep in mind that while a README can be too long and detailed, too long is better than too short. If you think your README is too long, consider utilizing another form of documentation rather than cutting out information.
+```bash
+git clone https://github.com/your-org/govwin-hubspot-integration.git
+cd govwin-hubspot-integration
+```
 
-## Name
-Choose a self-explaining name for your project.
+### 2. Configure credentials
 
-## Description
-Let people know what your project can do specifically. Provide context and add a link to any reference visitors might be unfamiliar with. A list of Features or a Background subsection can also be added here. If there are alternatives to your project, this is a good place to list differentiating factors.
+```bash
+cp terraform/terraform.tfvars.example terraform/terraform.tfvars
+```
 
-## Badges
-On some READMEs, you may see small images that convey metadata, such as whether or not all the tests are passing for the project. You can use Shields to add some to your README. Many services also have instructions for adding a badge.
+Edit `terraform/terraform.tfvars` with your API credentials. This file is gitignored and will never be committed.
 
-## Visuals
-Depending on what you are making, it can be a good idea to include screenshots or even a video (you'll frequently see GIFs rather than actual videos). Tools like ttygif can help, but check out Asciinema for a more sophisticated method.
+### 3. Deploy
 
-## Installation
-Within a particular ecosystem, there may be a common way of installing things, such as using Yarn, NuGet, or Homebrew. However, consider the possibility that whoever is reading your README is a novice and would like more guidance. Listing specific steps helps remove ambiguity and gets people to using your project as quickly as possible. If it only runs in a specific context like a particular programming language version or operating system or has dependencies that have to be installed manually, also add a Requirements subsection.
+```bash
+cd terraform
+terraform init
+terraform plan    # Review what will be created
+terraform apply   # Deploy infrastructure
+```
 
-## Usage
-Use examples liberally, and show the expected output if you can. It's helpful to have inline the smallest example of usage that you can demonstrate, while providing links to more sophisticated examples if they are too long to reasonably include in the README.
+Terraform will:
+- Create all AWS resources
+- Store your credentials in AWS Secrets Manager
+- Set up HubSpot custom properties and deal pipeline
+- Schedule the first sync
 
-## Support
-Tell people where they can go to for help. It can be any combination of an issue tracker, a chat room, an email address, etc.
+### 4. Verify
 
-## Roadmap
-If you have ideas for releases in the future, it is a good idea to list them in the README.
+- Check the AWS Step Functions console for the first execution
+- Verify deals appear in HubSpot under the "GovWin Pipeline"
+- Check CloudWatch logs for detailed sync output
 
-## Contributing
-State if you are open to contributions and what your requirements are for accepting them.
+## Configuration
 
-For people who want to make changes to your project, it's helpful to have some documentation on how to get started. Perhaps there is a script that they should run or some environment variables that they need to set. Make these steps explicit. These instructions could also be useful to your future self.
+All configuration is done via Terraform variables. See [terraform/variables.tf](terraform/variables.tf) for the full list.
 
-You can also document commands to lint the code or run tests. These steps help to ensure high code quality and reduce the likelihood that the changes inadvertently break something. Having instructions for running tests is especially helpful if it requires external setup, such as starting a Selenium server for testing in a browser.
+| Variable | Required | Default | Description |
+|---|---|---|---|
+| `govwin_client_id` | Yes | - | GovWin WSAPI client ID |
+| `govwin_client_secret` | Yes | - | GovWin WSAPI client secret |
+| `govwin_username` | Yes | - | GovWin user email |
+| `govwin_password` | Yes | - | GovWin user password |
+| `hubspot_private_app_token` | Yes | - | HubSpot private app access token |
+| `aws_region` | No | `us-east-1` | AWS region for deployment |
+| `sync_schedule` | No | `rate(4 hours)` | How often to sync |
+| `govwin_opp_types` | No | `ALL` | Opportunity types to sync (OPP, BID, TNS, FBO, ALL) |
+| `govwin_market` | No | (both) | Market filter (Federal, SLED, or both) |
+| `notification_email` | No | - | Email for sync notifications |
 
-## Authors and acknowledgment
-Show your appreciation to those who have contributed to the project.
+## Data Mapping
+
+### GovWin Opportunities -> HubSpot Deals
+
+See [docs/field-mapping.md](docs/field-mapping.md) for the complete field mapping reference.
+
+Key mappings:
+- `title` -> Deal Name
+- `oppValue` (x1000) -> Deal Amount
+- `status` -> Deal Stage (custom GovWin pipeline)
+- `govEntity.title` -> Associated Company
+- `primaryNAICS` -> Industry (mapped to AWS ACE industry values)
+- `description` -> Deal Description
+- `pAwardDateTo` -> Close Date
+
+### ACE-Ready Fields
+
+When the SaaSify ACE Connector is installed, synced deals are pre-populated with 9 of 12 mandatory ACE fields. Only 3 require manual entry before submission to AWS Partner Central:
+
+1. **Delivery Model** -- how the solution is delivered
+2. **Solution Offered** -- which AWS solution
+3. **Partner Primary Need from AWS** -- what support you need from AWS
+
+## Project Structure
+
+```
+src/
+  config.py              # Configuration management
+  models.py              # Pydantic data models
+  govwin/                # GovWin API client
+  hubspot/               # HubSpot API client
+  sync/                  # Sync logic (mapper, state, dedup)
+  lambdas/               # Lambda function handlers
+terraform/               # Infrastructure as Code
+  modules/               # Reusable Terraform modules
+tests/                   # Unit and integration tests
+docs/                    # Documentation
+```
+
+## Documentation
+
+- [Architecture Overview](docs/architecture.md)
+- [Field Mapping Reference](docs/field-mapping.md)
+- [Deployment Guide](docs/deployment-guide.md)
+- [ACE Integration Guide](docs/ace-integration.md)
+
+## Development
+
+```bash
+# Install dev dependencies
+make install-dev
+
+# Run tests
+make test
+
+# Lint code
+make lint
+
+# Format code
+make format
+
+# Type check
+make typecheck
+```
+
+## Security
+
+- All API credentials are stored in AWS Secrets Manager
+- Lambda functions use least-privilege IAM roles
+- `terraform.tfvars` and `.env` files are gitignored
+- No secrets are ever committed to the repository
+- Secret detection is enabled in CI/CD
 
 ## License
-For open source projects, say how it is licensed.
 
-## Project status
-If you have run out of energy or time for your project, put a note at the top of the README saying that development has slowed down or stopped completely. Someone may choose to fork your project or volunteer to step in as a maintainer or owner, allowing your project to keep going. You can also make an explicit request for maintainers.
+MIT License. See [LICENSE](LICENSE) for details.

@@ -1,0 +1,56 @@
+# Secrets - NEVER commit
+terraform.tfvars
+*.tfstate
+*.tfstate.*
+.terraform/
+.terraform.lock.hcl
+.env
+.env.*
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+*.egg
+
+# Lambda packaging
+package/
+*.zip
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Coverage
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
+
+# Terraform plans
+*.tfplan
+
+# Build artifacts
+dist/
+
+# Terraform crash logs
+crash.log
+*.log
+
+# Terraform lock info
+.terraform.tfstate.lock.info

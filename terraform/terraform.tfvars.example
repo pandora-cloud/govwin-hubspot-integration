@@ -1,0 +1,53 @@
+# GovWin-HubSpot Integration — Terraform Configuration
+# Copy this file to terraform.tfvars and fill in your values.
+# terraform.tfvars is gitignored and will never be committed.
+
+###############################################################################
+# Required — GovWin API Credentials
+###############################################################################
+
+govwin_client_id     = "your-govwin-client-id"
+govwin_client_secret = "your-govwin-client-secret"
+govwin_username      = "your-govwin-email@company.com"
+govwin_password      = "your-govwin-password"
+
+###############################################################################
+# Required — HubSpot Credentials
+###############################################################################
+
+hubspot_private_app_token = "pat-na1-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+
+###############################################################################
+# Optional — AWS Configuration
+###############################################################################
+
+# aws_region = "us-east-1"
+# environment = "prod"
+
+###############################################################################
+# Optional — Sync Configuration
+###############################################################################
+
+# sync_schedule          = "rate(4 hours)"   # How often to sync
+# govwin_opp_types       = "ALL"             # OPP, BID, TNS, FBO, OPN, TOP, ALL
+# govwin_market          = ""                # Federal, SLED, or both (empty)
+# govwin_saved_search_id = ""                # Use a saved search instead of broad query
+# initial_lookback_days  = 365               # Days to look back on first sync
+# max_concurrency        = 2                 # Parallel batches in Step Function
+# batch_size             = 50                # Opportunities per batch
+
+###############################################################################
+# Optional — Notifications
+###############################################################################
+
+# enable_notifications = true
+# notification_email   = "alerts@company.com"
+
+###############################################################################
+# Optional — Tags
+###############################################################################
+
+# tags = {
+#   Team    = "Engineering"
+#   Project = "GovWin Integration"
+# }
