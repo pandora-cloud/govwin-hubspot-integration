@@ -35,7 +35,7 @@ class GovWinGovEntity(BaseModel):
 
 
 class GovWinContact(BaseModel):
-    contact_id: str | None = Field(None, alias="contactId")
+    contact_id: str | int | None = Field(None, alias="contactId")
     first_name: str | None = Field(None, alias="firstName")
     last_name: str | None = Field(None, alias="lastName")
     email: str | None = None
@@ -89,9 +89,9 @@ class GovWinNAICS(BaseModel):
 
 class GovWinLinks(BaseModel):
     web_href: dict[str, str] | str | None = Field(None, alias="webHref")
-    contacts: str | None = None
-    companies: str | None = None
-    related_documents: str | None = Field(None, alias="relatedDocuments")
+    contacts: dict[str, str] | str | None = None
+    companies: dict[str, str] | str | None = None
+    related_documents: dict[str, str] | str | None = Field(None, alias="relatedDocuments")
 
     model_config = {"populate_by_name": True, "extra": "ignore"}
 
@@ -129,7 +129,7 @@ class GovWinOpportunity(BaseModel):
     contract_types: list[dict[str, Any]] = Field(default_factory=list, alias="contractTypes")
     type_of_award: str | None = Field(None, alias="typeOfAward")
     cmmc_requirements: str | None = Field(None, alias="cmmcRequirements")
-    smart_tag: list[dict[str, Any]] | None = Field(None, alias="smartTag")
+    smart_tag: list[dict[str, Any]] | str | None = Field(None, alias="smartTag")
     links: GovWinLinks | None = None
 
     model_config = {"populate_by_name": True, "extra": "ignore"}

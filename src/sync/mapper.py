@@ -127,14 +127,17 @@ def map_opportunity_to_deal(
     naics_code = opp.primary_naics.id if opp.primary_naics else None
     industry = naics_to_aws_industry(naics_code)
 
-    # Smart tags concatenation
+    # Smart tags concatenation (can be list of dicts or a plain string)
     smart_tags = None
     if opp.smart_tag:
-        tags = []
-        for tag in opp.smart_tag:
-            if isinstance(tag, dict) and tag.get("title"):
-                tags.append(tag["title"])
-        smart_tags = "; ".join(tags) if tags else None
+        if isinstance(opp.smart_tag, str):
+            smart_tags = opp.smart_tag
+        else:
+            tags = []
+            for tag in opp.smart_tag:
+                if isinstance(tag, dict) and tag.get("title"):
+                    tags.append(tag["title"])
+            smart_tags = "; ".join(tags) if tags else None
 
     # Competition and contract types
     competition_type = None
@@ -228,7 +231,7 @@ def map_contact_to_hubspot(contact: GovWinContact) -> dict[str, Any]:
         "city": contact.city,
         "state": contact.state,
         "zip": contact.zip,
-        "govwin_contact_id": contact.contact_id,
+        "govwin_contact_id": str(contact.contact_id) if contact.contact_id else None,
         "govwin_entity_level1": contact.gov_entity_level1,
         "govwin_entity_level2": contact.gov_entity_level2,
     }
