@@ -1,4 +1,5 @@
 variable "name_prefix" { type = string }
+variable "aws_profile" { type = string }
 variable "aws_region" { type = string }
 variable "sync_state_table_name" { type = string }
 variable "sync_state_table_arn" { type = string }
@@ -13,15 +14,42 @@ variable "govwin_tokens_secret_name" { type = string }
 variable "sns_topic_arn" { type = string }
 variable "dlq_url" { type = string }
 variable "dlq_arn" { type = string }
-variable "govwin_opp_types" { type = string; default = "ALL" }
-variable "govwin_market" { type = string; default = "" }
-variable "govwin_saved_search_id" { type = string; default = "" }
-variable "govwin_bookmarked_only" { type = bool; default = false }
-variable "govwin_marked_version" { type = string; default = "2.2" }
-variable "initial_lookback_days" { type = number; default = 365 }
-variable "batch_size" { type = number; default = 10 }
-variable "max_concurrency" { type = number; default = 2 }
-variable "log_retention_days" { type = number; default = 30 }
+variable "govwin_opp_types" {
+  type    = string
+  default = "ALL"
+}
+variable "govwin_market" {
+  type    = string
+  default = ""
+}
+variable "govwin_saved_search_id" {
+  type    = string
+  default = ""
+}
+variable "govwin_bookmarked_only" {
+  type    = bool
+  default = false
+}
+variable "govwin_marked_version" {
+  type    = string
+  default = "2.2"
+}
+variable "initial_lookback_days" {
+  type    = number
+  default = 365
+}
+variable "batch_size" {
+  type    = number
+  default = 10
+}
+variable "max_concurrency" {
+  type    = number
+  default = 2
+}
+variable "log_retention_days" {
+  type    = number
+  default = 30
+}
 
 # --- IAM Role ---
 
@@ -41,7 +69,7 @@ resource "aws_iam_role" "lambda" {
 }
 
 data "aws_iam_policy_document" "lambda_permissions" {
-  # CloudWatch Logs — scoped to this project's log groups
+  # CloudWatch Logs - scoped to this project's log groups
   statement {
     actions   = ["logs:CreateLogGroup", "logs:CreateLogStream", "logs:PutLogEvents"]
     resources = ["arn:aws:logs:${var.aws_region}:*:log-group:/aws/lambda/${var.name_prefix}-*:*"]
@@ -82,7 +110,7 @@ data "aws_iam_policy_document" "lambda_permissions" {
     resources = [var.sns_topic_arn]
   }
 
-  # SQS (DLQ) — scoped to the specific dead letter queue
+  # SQS (DLQ) - scoped to the specific dead letter queue
   statement {
     actions   = ["sqs:SendMessage"]
     resources = [var.dlq_arn]
@@ -100,7 +128,8 @@ resource "aws_iam_role_policy" "lambda" {
 resource "aws_lambda_layer_version" "deps" {
   filename            = "${path.module}/../../../lambda-layer.zip"
   layer_name          = "${var.name_prefix}-deps"
-  compatible_runtimes = ["python3.12"]
+  compatible_runtimes      = ["python3.12"]
+  compatible_architectures = ["arm64"]
   description         = "Shared Python dependencies for GovWin-HubSpot integration"
   source_code_hash    = fileexists("${path.module}/../../../lambda-layer.zip") ? filebase64sha256("${path.module}/../../../lambda-layer.zip") : ""
 
@@ -129,7 +158,6 @@ data "archive_file" "source" {
 
 locals {
   common_env = {
-    AWS_REGION              = var.aws_region
     SYNC_STATE_TABLE        = var.sync_state_table_name
     ENTITY_MAPPINGS_TABLE   = var.entity_mappings_table_name
     GOVWIN_SECRET_NAME      = var.govwin_secret_name
@@ -155,6 +183,7 @@ resource "aws_lambda_function" "authenticate" {
   role             = aws_iam_role.lambda.arn
   handler          = "src.lambdas.authenticate.handler"
   runtime          = "python3.12"
+  architectures    = ["arm64"]
   timeout                        = 30
   memory_size                    = 128
   reserved_concurrent_executions = 1
@@ -172,6 +201,7 @@ resource "aws_lambda_function" "discover_changes" {
   role                           = aws_iam_role.lambda.arn
   handler                        = "src.lambdas.discover_changes.handler"
   runtime                        = "python3.12"
+  architectures                  = ["arm64"]
   timeout                        = 300
   memory_size                    = 256
   reserved_concurrent_executions = 1
@@ -189,6 +219,7 @@ resource "aws_lambda_function" "fetch_opp_details" {
   role                           = aws_iam_role.lambda.arn
   handler                        = "src.lambdas.fetch_opp_details.handler"
   runtime                        = "python3.12"
+  architectures                  = ["arm64"]
   timeout                        = 300
   memory_size                    = 256
   reserved_concurrent_executions = 5
@@ -206,6 +237,7 @@ resource "aws_lambda_function" "sync_to_hubspot" {
   role                           = aws_iam_role.lambda.arn
   handler                        = "src.lambdas.sync_to_hubspot.handler"
   runtime                        = "python3.12"
+  architectures                  = ["arm64"]
   timeout                        = 300
   memory_size                    = 256
   reserved_concurrent_executions = 5
@@ -223,6 +255,7 @@ resource "aws_lambda_function" "update_sync_state" {
   role                           = aws_iam_role.lambda.arn
   handler                        = "src.lambdas.update_sync_state.handler"
   runtime                        = "python3.12"
+  architectures                  = ["arm64"]
   timeout                        = 30
   memory_size                    = 128
   reserved_concurrent_executions = 1
@@ -240,6 +273,7 @@ resource "aws_lambda_function" "setup_hubspot" {
   role                           = aws_iam_role.lambda.arn
   handler                        = "src.lambdas.setup_hubspot.handler"
   runtime                        = "python3.12"
+  architectures                  = ["arm64"]
   timeout                        = 120
   memory_size                    = 128
   reserved_concurrent_executions = 1
@@ -257,6 +291,7 @@ resource "aws_lambda_function" "handle_error" {
   role                           = aws_iam_role.lambda.arn
   handler                        = "src.lambdas.handle_error.handler"
   runtime                        = "python3.12"
+  architectures                  = ["arm64"]
   timeout                        = 30
   memory_size                    = 128
   reserved_concurrent_executions = 2
@@ -302,6 +337,10 @@ resource "terraform_data" "setup_hubspot" {
       cat /tmp/govwin-setup-response.json && \
       ! grep -q FunctionError /tmp/govwin-setup-response.json
     EOT
+
+    environment = {
+      AWS_PROFILE = var.aws_profile
+    }
   }
 
   depends_on = [

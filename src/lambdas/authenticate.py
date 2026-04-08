@@ -1,4 +1,4 @@
-"""Lambda: Authenticate with GovWin and return token info for the Step Function."""
+"""Authenticate with GovWin and return token info for the Step Function."""
 
 from __future__ import annotations
 

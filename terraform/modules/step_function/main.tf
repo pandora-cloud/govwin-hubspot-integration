@@ -1,6 +1,12 @@
 variable "name_prefix" { type = string }
-variable "sync_schedule" { type = string; default = "rate(4 hours)" }
-variable "max_concurrency" { type = number; default = 2 }
+variable "sync_schedule" {
+  type    = string
+  default = "rate(4 hours)"
+}
+variable "max_concurrency" {
+  type    = number
+  default = 2
+}
 variable "authenticate_arn" { type = string }
 variable "discover_changes_arn" { type = string }
 variable "fetch_opp_details_arn" { type = string }

@@ -22,8 +22,8 @@ from src.hubspot.properties import (
     COMPANY_PROPERTIES,
     CONTACT_PROPERTIES,
     DEAL_PROPERTIES,
-    GOVWIN_PIPELINE,
     GOVWIN_STATUS_TO_STAGE,
+    PIPELINE_NAME,
     PROPERTY_GROUP,
 )
 from src.hubspot.rate_limiter import HubSpotRateLimiter
@@ -177,6 +177,8 @@ class HubSpotClient:
             "groupName": prop.group_name,
             "description": prop.description,
         }
+        if prop.has_unique_value:
+            payload["hasUniqueValue"] = True
         if prop.options:
             payload["options"] = prop.options
 
@@ -215,22 +217,22 @@ class HubSpotClient:
     # -----------------------------------------------------------------------
 
     def ensure_pipeline(self) -> str:
-        """Create the GovWin pipeline if it doesn't exist. Returns pipeline ID."""
-        # Check existing pipelines
+        """Find the target pipeline by name and cache its stage IDs. Returns pipeline ID."""
         existing = self._get("crm/v3/pipelines/deals")
         for pipeline in existing.get("results", []):
-            if pipeline.get("label") == GOVWIN_PIPELINE["label"]:
+            if pipeline.get("label") == PIPELINE_NAME:
                 self._pipeline_id = pipeline["id"]
                 self._cache_stage_ids(pipeline)
-                logger.info("GovWin pipeline already exists (ID: %s)", self._pipeline_id)
+                logger.info(
+                    "Using pipeline '%s' (ID: %s, %d stages)",
+                    PIPELINE_NAME, self._pipeline_id, len(self._stage_label_to_id),
+                )
                 return self._pipeline_id
 
-        # Create new pipeline
-        result = self._post("crm/v3/pipelines/deals", GOVWIN_PIPELINE)
-        self._pipeline_id = result["id"]
-        self._cache_stage_ids(result)
-        logger.info("Created GovWin pipeline (ID: %s)", self._pipeline_id)
-        return self._pipeline_id
+        raise HubSpotAPIError(
+            f"Pipeline '{PIPELINE_NAME}' not found in HubSpot. "
+            f"Create it manually or update PIPELINE_NAME in hubspot/properties.py."
+        )
 
     def _cache_stage_ids(self, pipeline_data: dict) -> None:
         """Cache the mapping from stage labels to internal IDs."""
@@ -248,19 +250,19 @@ class HubSpotClient:
     # -----------------------------------------------------------------------
 
     def batch_upsert_deals(self, deals: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        """Batch upsert deals using govwin_opp_id as the dedup key."""
+        """Batch upsert deals using govwin_id as the dedup key."""
         results: list[dict[str, Any]] = []
 
         for i in range(0, len(deals), self._config.hubspot.max_batch_size):
             batch = deals[i : i + self._config.hubspot.max_batch_size]
             inputs = [
                 {
-                    "idProperty": "govwin_opp_id",
-                    "id": deal["properties"]["govwin_opp_id"],
+                    "idProperty": "govwin_id",
+                    "id": deal["properties"]["govwin_id"],
                     "properties": deal["properties"],
                 }
                 for deal in batch
-                if deal.get("properties", {}).get("govwin_opp_id")
+                if deal.get("properties", {}).get("govwin_id")
             ]
 
             if not inputs:
@@ -306,19 +308,19 @@ class HubSpotClient:
     # -----------------------------------------------------------------------
 
     def batch_upsert_companies(self, companies: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        """Batch upsert companies using govwin_gov_entity_id as the dedup key."""
+        """Batch upsert companies using govwin_entity_id as the dedup key."""
         results: list[dict[str, Any]] = []
 
         for i in range(0, len(companies), self._config.hubspot.max_batch_size):
             batch = companies[i : i + self._config.hubspot.max_batch_size]
             inputs = [
                 {
-                    "idProperty": "govwin_gov_entity_id",
-                    "id": co["properties"]["govwin_gov_entity_id"],
+                    "idProperty": "govwin_entity_id",
+                    "id": co["properties"]["govwin_entity_id"],
                     "properties": co["properties"],
                 }
                 for co in batch
-                if co.get("properties", {}).get("govwin_gov_entity_id")
+                if co.get("properties", {}).get("govwin_entity_id")
             ]
 
             if not inputs:
@@ -471,9 +473,9 @@ class HubSpotClient:
     # -----------------------------------------------------------------------
 
     def setup(self) -> dict[str, Any]:
-        """Run one-time setup: create properties, groups, and pipeline."""
+        """Run one-time setup: create properties/groups and verify pipeline exists."""
         self.ensure_all_properties()
-        pipeline_id = self.ensure_pipeline()
+        pipeline_id = self.ensure_pipeline()  # finds existing, does not create
         return {
             "pipeline_id": pipeline_id,
             "deal_properties": len(DEAL_PROPERTIES),

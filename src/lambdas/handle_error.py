@@ -1,4 +1,4 @@
-"""Lambda: Handle errors from the Step Function — notify and DLQ."""
+"""Handle errors from the Step Function, send notifications, and write to DLQ."""
 
 from __future__ import annotations
 
@@ -47,7 +47,7 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
     error_type = event.get("error", "Unknown")
     error_cause = event.get("cause", "No details available")
 
-    logger.error("Sync error: %s — %s", error_type, error_cause)
+    logger.error("Sync error: %s - %s", error_type, error_cause)
 
     sanitized = _sanitize_event(event)
 

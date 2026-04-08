@@ -72,7 +72,7 @@ class SyncOrchestrator:
                 mappings = []
                 for result in company_results:
                     hs_id = result.get("id")
-                    gw_id = result.get("properties", {}).get("govwin_gov_entity_id")
+                    gw_id = result.get("properties", {}).get("govwin_entity_id")
                     if hs_id and gw_id:
                         mappings.append(("GOVENTITY", gw_id, hs_id))
                 if mappings:
@@ -136,7 +136,7 @@ class SyncOrchestrator:
         # Detect skipped deals via set-difference (batch API doesn't guarantee order)
         if len(deal_results) < len(bundles):
             returned_ids = {
-                r.get("properties", {}).get("govwin_opp_id")
+                r.get("properties", {}).get("govwin_id")
                 for r in deal_results
             }
             submitted_ids = {
@@ -169,9 +169,9 @@ class SyncOrchestrator:
                 if company_hs_id:
                     deal_company_assocs.append((deal_hs_id, company_hs_id))
 
-            # Deal <-> Contacts
+            # Deal <-> Contacts (look up by contact_id, matching how mappings are stored)
             for contact in bundle.contacts:
-                key = contact.email or contact.contact_id
+                key = str(contact.contact_id) if contact.contact_id else None
                 if key:
                     contact_hs_id = self._state.get_entity_hubspot_id("CONTACT", key)
                     if contact_hs_id:

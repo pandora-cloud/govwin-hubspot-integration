@@ -7,7 +7,7 @@ import pytest
 
 from src.config import AppConfig
 from src.hubspot.client import HubSpotClient
-from src.hubspot.properties import GOVWIN_PIPELINE
+from src.hubspot.properties import PIPELINE_NAME
 
 
 @pytest.fixture
@@ -23,14 +23,20 @@ class TestBatchUpsertDeals:
                 200,
                 json={
                     "results": [
-                        {"id": "hs-deal-001", "properties": {"govwin_opp_id": "OPP001"}}
+                        {"id": "hs-deal-001", "properties": {"govwin_id": "OPP001"}}
                     ]
                 },
             )
         )
 
         deals = [
-            {"properties": {"govwin_opp_id": "OPP001", "dealname": "Test Deal"}}
+            {
+                "properties": {
+                    "govwin_id": "OPP001",
+                    "govwin_opp_id": "OPP001",
+                    "dealname": "Test Deal",
+                }
+            }
         ]
         results = hs_client.batch_upsert_deals(deals)
 
@@ -43,39 +49,13 @@ class TestBatchUpsertDeals:
 
         body = json.loads(request.content)
         assert "inputs" in body
-        assert body["inputs"][0]["idProperty"] == "govwin_opp_id"
+        assert body["inputs"][0]["idProperty"] == "govwin_id"
         assert body["inputs"][0]["id"] == "OPP001"
 
 
 class TestEnsurePipeline:
-    def test_ensure_pipeline_creates_new(self, hs_client: HubSpotClient, hubspot_mock):
-        """Mock GET pipelines (empty) then POST create."""
-        hubspot_mock.get("/crm/v3/pipelines/deals").mock(
-            return_value=httpx.Response(200, json={"results": []})
-        )
-        hubspot_mock.post("/crm/v3/pipelines/deals").mock(
-            return_value=httpx.Response(
-                200,
-                json={
-                    "id": "new-pipeline-001",
-                    "label": "GovWin Pipeline",
-                    "stages": [
-                        {"id": "stage-1", "label": "Pre-RFP"},
-                        {"id": "stage-2", "label": "RFP Released"},
-                    ],
-                },
-            )
-        )
-
-        pipeline_id = hs_client.ensure_pipeline()
-        assert pipeline_id == "new-pipeline-001"
-        assert hs_client.pipeline_id == "new-pipeline-001"
-        # Verify POST was called (second call after GET)
-        assert len(hubspot_mock.calls) == 2
-        assert hubspot_mock.calls[1].request.method == "POST"
-
-    def test_ensure_pipeline_existing(self, hs_client: HubSpotClient, hubspot_mock):
-        """Mock GET pipelines (found) and verify no POST."""
+    def test_ensure_pipeline_finds_existing(self, hs_client: HubSpotClient, hubspot_mock):
+        """Find the existing Government pipeline by name."""
         hubspot_mock.get("/crm/v3/pipelines/deals").mock(
             return_value=httpx.Response(
                 200,
@@ -83,10 +63,10 @@ class TestEnsurePipeline:
                     "results": [
                         {
                             "id": "existing-pipe-001",
-                            "label": "GovWin Pipeline",
+                            "label": PIPELINE_NAME,
                             "stages": [
-                                {"id": "s1", "label": "Pre-RFP"},
-                                {"id": "s2", "label": "RFP Released"},
+                                {"id": "s1", "label": "Opportunity Identified"},
+                                {"id": "s2", "label": "Reviewing Requirements"},
                             ],
                         }
                     ]
@@ -99,6 +79,19 @@ class TestEnsurePipeline:
         # Only the GET should have been called
         assert len(hubspot_mock.calls) == 1
         assert hubspot_mock.calls[0].request.method == "GET"
+
+    def test_ensure_pipeline_not_found_raises(self, hs_client: HubSpotClient, hubspot_mock):
+        """Raise error if target pipeline doesn't exist in HubSpot."""
+        hubspot_mock.get("/crm/v3/pipelines/deals").mock(
+            return_value=httpx.Response(200, json={"results": []})
+        )
+
+        import pytest
+
+        from src.hubspot.client import HubSpotAPIError
+
+        with pytest.raises(HubSpotAPIError, match="not found"):
+            hs_client.ensure_pipeline()
 
 
 class TestEnsureProperty:
@@ -122,11 +115,11 @@ class TestGetStageId:
                     "results": [
                         {
                             "id": "pipe-001",
-                            "label": GOVWIN_PIPELINE["label"],
+                            "label": PIPELINE_NAME,
                             "stages": [
-                                {"id": "stage-prerp", "label": "Pre-RFP"},
-                                {"id": "stage-rfp", "label": "RFP Released"},
-                                {"id": "stage-other", "label": "Other"},
+                                {"id": "stage-opid", "label": "Opportunity Identified"},
+                                {"id": "stage-review", "label": "Reviewing Requirements"},
+                                {"id": "stage-prep", "label": "Preparing Response"},
                             ],
                         }
                     ]
@@ -136,13 +129,13 @@ class TestGetStageId:
 
         hs_client.ensure_pipeline()
 
-        # Test mapping known GovWin status
-        assert hs_client.get_stage_id("Pre-RFP") == "stage-prerp"
-        assert hs_client.get_stage_id("RFP Released") == "stage-rfp"
-        assert hs_client.get_stage_id("Pre-Solicitation") == "stage-prerp"
+        # Test mapping known GovWin status to Government pipeline stages
+        assert hs_client.get_stage_id("Pre-RFP") == "stage-opid"
+        assert hs_client.get_stage_id("RFP Released") == "stage-review"
+        assert hs_client.get_stage_id("Proposal Submitted") == "stage-prep"
 
-        # Unknown status maps to "Other"
-        assert hs_client.get_stage_id("UnknownStatus") == "stage-other"
+        # Unknown status returns None (no "Other" stage in existing pipeline)
+        assert hs_client.get_stage_id("UnknownStatus") is None
 
 
 class TestAuthRetry:

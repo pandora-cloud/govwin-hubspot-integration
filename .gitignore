@@ -1,5 +1,6 @@
-# Secrets - NEVER commit
+# Secrets and deployer-specific config - NEVER commit
 terraform.tfvars
+terraform/backend.tf
 *.tfstate
 *.tfstate.*
 .terraform/

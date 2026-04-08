@@ -86,6 +86,22 @@ def _extract_date_value(date_field: dict[str, Any] | str | None) -> str | None:
     return date_field.get("value")
 
 
+def _to_hubspot_timestamp(date_str: str | None) -> str | None:
+    """Convert a date string to HubSpot timestamp (Unix epoch milliseconds).
+
+    HubSpot date/datetime properties require values as millisecond timestamps.
+    """
+    if not date_str:
+        return None
+    try:
+        from dateutil.parser import parse as parse_date
+
+        dt = parse_date(date_str)
+        return str(int(dt.timestamp() * 1000))
+    except (ValueError, OverflowError):
+        return None
+
+
 def _extract_link_href(links: Any) -> str | None:
     """Extract the webHref URL from GovWin links."""
     if not links:
@@ -152,12 +168,15 @@ def map_opportunity_to_deal(
         "dealname": opp.title or "Untitled GovWin Opportunity",
         "amount": amount,
         "description": sanitize_html(opp.description),
-        "closedate": close_date,
+        "closedate": _to_hubspot_timestamp(close_date),
+        "govwin_id": opp.id,
         "govwin_opp_id": opp.id,
         "govwin_iq_opp_id": str(opp.iq_opp_id) if opp.iq_opp_id else None,
         "govwin_opp_type": opp.type,
         "govwin_status": opp.status,
-        "govwin_solicitation_date": _extract_date_value(opp.solicitation_date),
+        "govwin_solicitation_date": _to_hubspot_timestamp(
+            _extract_date_value(opp.solicitation_date)
+        ),
         "govwin_solicitation_number": opp.solicitation_number,
         "govwin_source_url": opp.source_url,
         "govwin_iq_url": _extract_link_href(opp.links),
@@ -170,8 +189,8 @@ def map_opportunity_to_deal(
         "govwin_contract_type": contract_type,
         "govwin_type_of_award": opp.type_of_award,
         "govwin_country": opp.country,
-        "govwin_created_date": opp.created_date,
-        "govwin_update_date": opp.update_date,
+        "govwin_created_date": _to_hubspot_timestamp(opp.created_date),
+        "govwin_update_date": _to_hubspot_timestamp(opp.update_date),
         "govwin_cmmc_requirements": opp.cmmc_requirements,
         "govwin_smart_tags": smart_tags,
         "govwin_agency": opp.gov_entity.title if opp.gov_entity else None,
@@ -186,7 +205,6 @@ def map_opportunity_to_deal(
     if stage_id:
         properties["dealstage"] = stage_id
 
-    # Remove None values
     properties = {k: v for k, v in properties.items() if v is not None}
 
     return {"properties": properties}
@@ -206,7 +224,8 @@ def map_gov_entity_to_company(
 
     properties: dict[str, Any] = {
         "name": entity.title or "Unknown Agency",
-        "industry": "Government",
+        "industry": "GOVERNMENT_ADMINISTRATION",
+        "govwin_entity_id": str(entity.id) if entity.id else None,
         "govwin_gov_entity_id": str(entity.id) if entity.id else None,
         "govwin_parent_agency": parent_agency,
     }

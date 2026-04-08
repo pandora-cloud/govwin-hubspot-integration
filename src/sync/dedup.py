@@ -30,12 +30,7 @@ def filter_changed_opportunities(
     opportunities: list[GovWinOpportunity],
     state_manager: SyncStateManager,
 ) -> list[GovWinOpportunity]:
-    """Filter out opportunities that haven't changed since last sync.
-
-    Compares each opportunity's updateDate against the stored value using
-    proper datetime parsing (handles timezone offsets correctly).
-    Returns only opportunities that are new or have a newer updateDate.
-    """
+    """Return only opportunities that are new or updated since last sync."""
     if not opportunities:
         return []
 

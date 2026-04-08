@@ -1,6 +1,12 @@
 variable "name_prefix" { type = string }
-variable "enable_notifications" { type = bool; default = true }
-variable "notification_email" { type = string; default = "" }
+variable "enable_notifications" {
+  type    = bool
+  default = true
+}
+variable "notification_email" {
+  type    = string
+  default = ""
+}
 
 resource "aws_sns_topic" "sync_notifications" {
   name              = "${var.name_prefix}-notifications"

@@ -1,4 +1,4 @@
-"""Lambda: Discover opportunities updated since last sync."""
+"""Discover opportunities updated since last sync."""
 
 from __future__ import annotations
 
@@ -40,7 +40,7 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
     state = SyncStateManager(config)
 
     with GovWinClient(config, auth) as client:
-        # Mode 1: Marked for sync (default — BD team marks opps in GovWin IQ)
+        # Mode 1: Marked for sync (default - BD team marks opps in GovWin IQ)
         if config.govwin.marked_version:
             logger.info(
                 "Discovering opportunities marked for sync (version=%s)",

@@ -30,7 +30,7 @@ def _print_result(name: str, passed: bool, detail: str = "") -> None:
     status = "\033[32mPASS\033[0m" if passed else "\033[31mFAIL\033[0m"
     msg = f"  [{status}] {name}"
     if detail:
-        msg += f" — {detail}"
+        msg += f" - {detail}"
     print(msg)
 
 
@@ -159,7 +159,7 @@ def check_hubspot(config) -> bool:
         _print_result(
             "GovWin Properties",
             has_govwin,
-            "installed" if has_govwin else "not found — run setup_hubspot Lambda first",
+            "installed" if has_govwin else "not found - run setup_hubspot Lambda first",
         )
     except Exception as e:
         _print_result("API Access", False, str(e))
@@ -243,7 +243,7 @@ def main() -> int:
     config = load_config()
     results: list[bool] = []
 
-    print("GovWin-HubSpot Integration — Pre-deployment Validation")
+    print("GovWin-HubSpot Integration - Pre-deployment Validation")
     print("=" * 55)
 
     if os.environ.get("AWS_ENDPOINT_URL"):

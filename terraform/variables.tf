@@ -1,5 +1,5 @@
 ###############################################################################
-# Required Variables — deployer must provide
+# Required Variables - deployer must provide
 ###############################################################################
 
 variable "govwin_client_id" {
@@ -33,8 +33,14 @@ variable "hubspot_private_app_token" {
 }
 
 ###############################################################################
-# Optional Variables — sensible defaults provided
+# Optional Variables - sensible defaults provided
 ###############################################################################
+
+variable "aws_profile" {
+  description = "AWS CLI profile name for authentication"
+  type        = string
+  default     = "default"
+}
 
 variable "aws_region" {
   description = "AWS region for deployment"
@@ -88,7 +94,7 @@ variable "govwin_market" {
 }
 
 variable "govwin_saved_search_id" {
-  description = "Optional GovWin saved search ID — only sync opps matching this search"
+  description = "Optional GovWin saved search ID - only sync opps matching this search"
   type        = string
   default     = ""
 }
@@ -100,7 +106,7 @@ variable "govwin_bookmarked_only" {
 }
 
 variable "govwin_marked_version" {
-  description = "Only sync opps marked for download in GovWin: '2.2' (Web Services), '2' (Deltek CRM), or '' (disabled — sync all)"
+  description = "Only sync opps marked for download in GovWin: '2.2' (Web Services), '2' (Deltek CRM), or '' (disabled, sync all)"
   type        = string
   default     = "2.2"
 

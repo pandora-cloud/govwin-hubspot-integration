@@ -14,9 +14,9 @@ Deltek GovWin IQ ──(this integration)──> HubSpot CRM ──(SaaSify ACE)
 
 ## What It Does
 
-- Syncs GovWin opportunities as HubSpot **Deals** with 25+ custom properties
-- Syncs government entities as HubSpot **Companies**
-- Syncs opportunity contacts as HubSpot **Contacts**
+- Pulls GovWin opportunities into HubSpot **Deals** with 25+ custom properties
+- Maps government entities to HubSpot **Companies**
+- Imports opportunity contacts as HubSpot **Contacts**
 - Creates **associations** between deals, companies, and contacts
 - **Incremental sync** -- only processes opportunities that changed since last run
 - Pre-populates **9 of 12 AWS ACE mandatory fields** for co-selling readiness
@@ -38,7 +38,7 @@ Estimated AWS cost: **~$6/month** at moderate volume (1,000 opportunities).
 
 ## Prerequisites
 
-- **Deltek GovWin IQ** subscription with WSAPI V3 access — you need a Client ID, Client Secret, and a user account (see [Deployment Guide Step 3](docs/deployment-guide.md#step-3-get-govwin-api-credentials))
+- **Deltek GovWin IQ** subscription with WSAPI V3 access. You need a Client ID, Client Secret, and a user account (see [Deployment Guide Step 3](docs/deployment-guide.md#step-3-get-govwin-api-credentials))
 - **HubSpot** account (Professional or Enterprise) with a Service Key or Private App token (see [Deployment Guide Step 2](docs/deployment-guide.md#step-2-create-hubspot-api-token))
 - **AWS** account with permissions to create Lambda, Step Functions, DynamoDB, Secrets Manager, EventBridge, SNS, SQS, IAM, and CloudWatch resources
 - **Terraform** >= 1.11 installed locally
@@ -63,14 +63,18 @@ cp terraform/terraform.tfvars.example terraform/terraform.tfvars
 
 Edit `terraform/terraform.tfvars` with your API credentials. This file is gitignored and will never be committed.
 
-### 3. Deploy
+### 3. Build and deploy
 
 ```bash
+make package      # Build Lambda dependency layer for ARM64 (~21MB zip)
+
 cd terraform
 terraform init
 terraform plan    # Review what will be created
 terraform apply   # Deploy infrastructure
 ```
+
+The layer is cross-compiled for ARM64 (Graviton2) regardless of your local machine architecture. See [Deployment Guide Step 5](docs/deployment-guide.md#step-5-build-the-lambda-layer) for details.
 
 Terraform will:
 - Create all AWS resources
@@ -171,6 +175,7 @@ docs/                    # Documentation
 - [Field Mapping Reference](docs/field-mapping.md)
 - [Deployment Guide](docs/deployment-guide.md)
 - [ACE Integration Guide](docs/ace-integration.md)
+- [Testing Guide](docs/testing.md)
 
 ## Development
 

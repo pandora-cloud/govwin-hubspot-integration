@@ -20,12 +20,7 @@ class RateLimitStatus:
 
 
 class TokenBucketRateLimiter:
-    """
-    Rolling-window token bucket rate limiter.
-
-    Tracks API call timestamps within a rolling 60-minute window.
-    Returns wait times when the limit is approached.
-    """
+    """Rolling-window rate limiter tracking calls within a 60-minute window."""
 
     def __init__(
         self,

@@ -69,13 +69,13 @@ class GovWinCompany(BaseModel):
 
 
 class GovWinContract(BaseModel):
-    contract_id: str | None = Field(None, alias="contractId")
-    contract_number: str | None = Field(None, alias="contractNumber")
+    contract_id: str | int | None = Field(None, alias="contractId")
+    contract_number: str | int | None = Field(None, alias="contractNumber")
     award_date: str | None = Field(None, alias="awardDate")
-    estimated_value: str | None = Field(None, alias="estimatedValue")
+    estimated_value: str | int | float | None = Field(None, alias="estimatedValue")
     expiration_date: str | None = Field(None, alias="expirationDate")
-    company: dict[str, Any] | None = None
-    incumbent: bool | None = None
+    company: dict[str, Any] | list[dict[str, Any]] | None = None
+    incumbent: bool | str | None = None
 
     model_config = {"populate_by_name": True, "extra": "ignore"}
 
@@ -161,6 +161,7 @@ class HubSpotProperty(BaseModel):
     field_type: str = Field("text", alias="fieldType")
     group_name: str = Field("govwin", alias="groupName")
     description: str = ""
+    has_unique_value: bool = Field(False, alias="hasUniqueValue")
     options: list[dict[str, str]] = Field(default_factory=list)
 
     model_config = {"populate_by_name": True}

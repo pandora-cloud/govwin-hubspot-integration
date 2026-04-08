@@ -2,7 +2,7 @@
 """Dry-run sync simulation.
 
 Discovers opportunities from GovWin, fetches details, maps fields,
-and reports what WOULD be synced — without writing to HubSpot or DynamoDB.
+and reports what WOULD be synced without writing to HubSpot or DynamoDB.
 
 Requires GovWin credentials (via env vars or Secrets Manager).
 
@@ -200,7 +200,7 @@ def main() -> int:
         print(f"     Amount:      {amt}")
         print(f"     Agency:      {d.get('govwin_agency', 'N/A')}")
         print(f"     Industry:    {d.get('govwin_industry', 'N/A')}")
-        naics = f"{d.get('govwin_naics_code', 'N/A')} — {d.get('govwin_primary_naics', '')}"
+        naics = f"{d.get('govwin_naics_code', 'N/A')} - {d.get('govwin_primary_naics', '')}"
         print(f"     NAICS:       {naics}")
         print(f"     Close Date:  {d.get('closedate', 'N/A')}")
         print(f"     Contacts:    {r['contact_count']}")

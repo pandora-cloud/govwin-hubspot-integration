@@ -1,4 +1,4 @@
-"""Lambda: Update sync state after a successful sync run."""
+"""Update sync state after a successful sync run."""
 
 from __future__ import annotations
 
@@ -49,7 +49,7 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
     # In marked mode the cursor is unused; writing it would create a stale
     # value that could cause issues if the deployment later switches modes.
     if config.govwin.marked_version:
-        logger.info("Marked mode active — skipping cursor update (not needed)")
+        logger.info("Marked mode active - skipping cursor update (not needed)")
         return {"status": "updated", "mode": "marked"}
 
     timestamp = datetime.now(UTC).strftime("%m/%d/%Y")

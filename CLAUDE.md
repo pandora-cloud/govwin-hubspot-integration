@@ -15,51 +15,57 @@ Integration between Deltek GovWin IQ and HubSpot CRM, deployed on AWS via Terraf
 ## Pipeline
 
 ```
-GovWin IQ → (this integration) → HubSpot CRM → (SaaSify ACE Connector) → AWS Partner Central
+GovWin IQ -> (this integration) -> HubSpot CRM -> (SaaSify ACE Connector) -> AWS Partner Central
 ```
 
 ## Build & Test Commands
 
-- `make install-dev` — Install dev dependencies
-- `make test` — Run unit tests (`pytest tests/unit -v`)
-- `make test-all` — Run all tests including integration
-- `make lint` — Run ruff linter
-- `make format` — Auto-format code
-- `make typecheck` — Run mypy
-- `make deploy` — Deploy via Terraform
-- `make package` — Package Lambda layer
+- `make install-dev` - Install dev dependencies
+- `make test` - Run unit tests (`pytest tests/unit -v`)
+- `make test-all` - Run all tests including integration
+- `make lint` - Run ruff linter
+- `make format` - Auto-format code
+- `make typecheck` - Run mypy
+- `make deploy` - Deploy via Terraform
+- `make package` - Package Lambda layer
 
 ## Code Structure
 
 ```
 src/
-  config.py              — Configuration from environment variables
-  models.py              — Pydantic models for GovWin and HubSpot data
+  config.py              - Configuration from environment variables
+  models.py              - Pydantic models for GovWin and HubSpot data
   govwin/
-    auth.py              — OAuth2 token acquire/refresh via Secrets Manager
-    client.py            — GovWin WSAPI V3 client (all endpoints)
-    rate_limiter.py      — Token bucket rate limiter (4,000/hr)
+    auth.py              - OAuth2 token acquire/refresh via Secrets Manager
+    client.py            - GovWin WSAPI V3 client (all endpoints)
+    rate_limiter.py      - Token bucket rate limiter (4,000/hr)
   hubspot/
-    client.py            — HubSpot CRM API client (batch upsert, associations)
-    properties.py        — Custom property/pipeline definitions (declarative)
-    rate_limiter.py      — Sliding window rate limiter (100/10s)
+    client.py            - HubSpot CRM API client (batch upsert, associations)
+    properties.py        - Custom property/pipeline definitions (declarative)
+    rate_limiter.py      - Sliding window rate limiter (100/10s)
   sync/
-    mapper.py            — GovWin → HubSpot field transformation + NAICS→industry mapping
-    state.py             — DynamoDB state management (sync cursors, ID mappings)
-    dedup.py             — Change detection: filter by updateDate (timezone-aware)
-    orchestrator.py      — High-level sync coordination
+    mapper.py            - GovWin -> HubSpot field transformation + NAICS -> industry mapping
+    state.py             - DynamoDB state management (sync cursors, ID mappings)
+    dedup.py             - Change detection: filter by updateDate (timezone-aware)
+    orchestrator.py      - High-level sync coordination
   lambdas/
-    authenticate.py      — Get/refresh GovWin OAuth token
-    discover_changes.py  — Discover opps to sync (marked/saved search/bookmarked/all)
-    fetch_opp_details.py — Fetch full opportunity data (bundle)
-    sync_to_hubspot.py   — Push to HubSpot via batch APIs
-    update_sync_state.py — Persist sync cursor to DynamoDB
-    setup_hubspot.py     — One-time property/pipeline creation
-    handle_error.py      — Error notification (SNS + SQS DLQ)
+    authenticate.py      - Get/refresh GovWin OAuth token
+    discover_changes.py  - Discover opps to sync (marked/saved search/bookmarked/all)
+    fetch_opp_details.py - Fetch full opportunity data (bundle)
+    sync_to_hubspot.py   - Push to HubSpot via batch APIs
+    update_sync_state.py - Persist sync cursor to DynamoDB
+    setup_hubspot.py     - One-time property/pipeline creation
+    handle_error.py      - Error notification (SNS + SQS DLQ)
 terraform/
-  main.tf                — Root module wiring
-  variables.tf           — All configurable inputs (sensitive marked)
-  modules/               — lambda, step_function, dynamodb, secrets, monitoring
+  provider.tf            - AWS provider config with profile
+  backend.tf             - S3 backend (gitignored, deployer-specific)
+  main.tf                - Root module wiring
+  variables.tf           - All configurable inputs (sensitive marked)
+  modules/               - lambda, step_function, dynamodb, secrets, monitoring
+scripts/
+  validate.py            - Pre-deployment credential and connectivity checks
+  dry_run.py             - Preview sync results without writing to HubSpot
+  localstack-init.sh     - Create AWS resources in LocalStack for local testing
 ```
 
 ## External APIs
@@ -74,8 +80,8 @@ REST/JSON API for retrieving government contracting data. Reference doc: `docs/D
 - **Paging**: Default 10 items, max 100. Response includes `meta.paging`.
 - **Key entities**: Opportunities (OPP/TNS/BID/FBO/OPN/TOP), GovEntities, Companies
 - **Incremental sync**: Track `updateDate` per opportunity; use `oppSelectionDateFrom`.
-- **Marked for download**: `GET /opportunities/?markedVersion=2.2` — BD team marks opps for sync.
-- **Bookmarked**: `GET /opportunities/?markedOpps=true` — user's bookmarked opps.
+- **Marked for download**: `GET /opportunities/?markedVersion=2.2` - BD team marks opps for sync.
+- **Bookmarked**: `GET /opportunities/?markedOpps=true` - user's bookmarked opps.
 
 ### HubSpot CRM API v3
 
@@ -95,6 +101,6 @@ Already installed in HubSpot. Reads deal properties and submits to AWS Partner C
 - **DynamoDB for state**: Serverless, pay-per-request, perfect for key-value sync tracking
 - **Secrets Manager over SSM**: Automatic rotation support, audit trail
 - **HubSpot batch upsert with idProperty**: Eliminates search-before-upsert, reducing API calls by ~50%
-- **NAICS→AWS industry mapping**: Configurable lookup in `src/sync/mapper.py`
+- **NAICS -> AWS industry mapping**: Configurable lookup in `src/sync/mapper.py`
 - **Marked-for-sync default**: Only opps BD team marks in GovWin sync to HubSpot (prevents bulk sync of irrelevant data)
-- **Three discovery modes**: Marked (default), saved search, or bookmarked — configurable via Terraform variables
+- **Three discovery modes**: Marked (default), saved search, or bookmarked - configurable via Terraform variables

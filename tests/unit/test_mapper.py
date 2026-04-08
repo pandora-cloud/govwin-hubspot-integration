@@ -55,7 +55,8 @@ def test_map_opportunity_to_deal():
     assert props["pipeline"] == "pipe123"
     assert props["dealstage"] == "stage456"
     assert props["govwin_agency"] == "Department of Defense"
-    assert props["closedate"] == "2025-09-30"
+    # closedate is a HubSpot epoch millisecond timestamp
+    assert props["closedate"].isdigit()
     # HTML should be stripped from description
     assert "<p>" not in props["description"]
     assert "Cloud migration" in props["description"]
@@ -79,7 +80,7 @@ def test_map_gov_entity_to_company():
     props = result["properties"]
 
     assert props["name"] == "Department of Defense"
-    assert props["industry"] == "Government"
+    assert props["industry"] == "GOVERNMENT_ADMINISTRATION"
     assert props["govwin_gov_entity_id"] == "100"
     assert props["govwin_parent_agency"] == "Federal Government"
 
