@@ -1,4 +1,4 @@
-.PHONY: help install install-dev test lint format typecheck deploy destroy clean
+.PHONY: help install install-dev test lint format typecheck deploy destroy clean local-up local-test local-down validate dry-run
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
@@ -46,3 +46,29 @@ clean: ## Remove build artifacts
 	rm -rf dist build *.egg-info
 	rm -rf package/ lambda-layer.zip
 	find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
+
+# ---------------------------------------------------------------------------
+# Local Testing (Docker + LocalStack)
+# ---------------------------------------------------------------------------
+
+local-up: ## Start LocalStack with DynamoDB, Secrets Manager, SNS, SQS
+	docker compose up -d localstack
+	@echo "Waiting for LocalStack to be ready..."
+	@docker compose exec localstack bash -c 'until curl -sf http://localhost:4566/_localstack/health; do sleep 1; done' > /dev/null 2>&1
+	@echo "LocalStack is ready. Resources initialized."
+
+local-test: ## Run tests against LocalStack (via Docker)
+	docker compose run --rm test-runner
+
+local-down: ## Stop LocalStack and clean up
+	docker compose down -v
+
+# ---------------------------------------------------------------------------
+# Validation & Dry Run
+# ---------------------------------------------------------------------------
+
+validate: ## Validate credentials and connectivity (GovWin, HubSpot, AWS)
+	python scripts/validate.py
+
+dry-run: ## Dry-run sync: discover and map opps without writing to HubSpot
+	python scripts/dry_run.py --limit 5

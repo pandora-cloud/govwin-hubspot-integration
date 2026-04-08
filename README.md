@@ -38,11 +38,12 @@ Estimated AWS cost: **~$6/month** at moderate volume (1,000 opportunities).
 
 ## Prerequisites
 
-- **Deltek GovWin IQ** subscription with WSAPI access (client ID + secret + user credentials)
-- **HubSpot** account (Professional or Enterprise for custom properties)
+- **Deltek GovWin IQ** subscription with WSAPI V3 access — you need a Client ID, Client Secret, and a user account (see [Deployment Guide Step 3](docs/deployment-guide.md#step-3-get-govwin-api-credentials))
+- **HubSpot** account (Professional or Enterprise) with a Service Key or Private App token (see [Deployment Guide Step 2](docs/deployment-guide.md#step-2-create-hubspot-api-token))
 - **AWS** account with permissions to create Lambda, Step Functions, DynamoDB, Secrets Manager, EventBridge, SNS, SQS, IAM, and CloudWatch resources
-- **Terraform** >= 1.5 installed locally
+- **Terraform** >= 1.11 installed locally
 - **Python** >= 3.12 (for local development)
+- (Optional) **Docker** for local testing with LocalStack
 - (Optional) **SaaSify AWS ACE Connector** installed in HubSpot for AWS Partner Central integration
 
 ## Quick Start
@@ -188,6 +189,41 @@ make format
 
 # Type check
 make typecheck
+```
+
+## Local Testing
+
+You can test the integration before deploying to AWS.
+
+### 1. Set up credentials
+
+```bash
+cp .env.example .env
+# Edit .env with your real GovWin + HubSpot credentials
+```
+
+### 2. Validate connectivity
+
+```bash
+source .env
+make validate                # Tests GovWin OAuth, HubSpot token, AWS access
+```
+
+### 3. Dry-run sync
+
+```bash
+source .env
+make dry-run                 # Discovers marked opps, shows what would sync
+```
+
+### 4. LocalStack (Docker)
+
+Test against real AWS services locally without an AWS account:
+
+```bash
+make local-up                # Start LocalStack (DynamoDB, Secrets Manager, etc.)
+make local-test              # Run all tests against LocalStack
+make local-down              # Clean up
 ```
 
 ## Security

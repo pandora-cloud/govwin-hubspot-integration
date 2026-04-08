@@ -22,27 +22,99 @@ git clone https://github.com/your-org/govwin-hubspot-integration.git
 cd govwin-hubspot-integration
 ```
 
-## Step 2: Create HubSpot Private App
+## Step 2: Create HubSpot API Token
 
-1. Log in to HubSpot as a Super Admin
-2. Go to **Settings > Integrations > Private Apps**
-3. Click **Create a private app**
-4. Name it "GovWin Integration"
-5. Under **Scopes**, enable:
+HubSpot offers two methods for API authentication. Use **Service Keys** (recommended) or Private Apps (legacy).
+
+### Option A: Service Key (Recommended — 2026+)
+
+Service Keys are HubSpot's modern replacement for Private Apps. They provide a non-expiring bearer token for API-only integrations.
+
+1. Log in to HubSpot as a **Super Admin**
+2. Go to **Settings > Integrations > Service Keys**
+3. Click **"Create service key"**
+4. Name it `GovWin Integration`
+5. Select these scopes:
    - `crm.objects.deals.read` and `crm.objects.deals.write`
    - `crm.objects.companies.read` and `crm.objects.companies.write`
    - `crm.objects.contacts.read` and `crm.objects.contacts.write`
    - `crm.schemas.deals.read` and `crm.schemas.deals.write`
    - `crm.schemas.companies.read` and `crm.schemas.companies.write`
    - `crm.schemas.contacts.read` and `crm.schemas.contacts.write`
+6. Click **Create** and copy the token (starts with `pat-na1-` or `pat-na2-`)
+
+> **Note:** Service Keys are in public beta (as of February 2026). If you don't see "Service Keys" in your HubSpot settings, use Option B below.
+
+### Option B: Private App (Legacy — still works)
+
+1. Log in to HubSpot as a **Super Admin**
+2. Go to **Settings > Integrations > Private Apps**
+3. Click **"Create a private app"**
+4. Name it `GovWin Integration`
+5. Under the **Scopes** tab, enable the same 12 scopes listed in Option A
 6. Click **Create app** and copy the access token
+
+> **Note:** Private Apps are marked as "legacy" by HubSpot. They still work and have no announced sunset date, but new integrations should prefer Service Keys when available.
+
+### Token Format
+
+Both options produce a bearer token in the same format:
+```
+pat-na1-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+```
+This token does not expire. Store it securely — anyone with this token has full read/write access to your CRM data within the granted scopes.
 
 ## Step 3: Get GovWin API Credentials
 
-1. Log in to GovWin IQ as an administrator
-2. Navigate to **Admin > Web Service API**
-3. Note your **Client ID** and **Client Secret**
-4. Note the GovWin **username** (email) and **password** for the API user
+You need 4 values from GovWin: a Client ID, Client Secret, username, and password. The integration uses OAuth2 password grant to authenticate.
+
+### 3a. Get Client ID and Client Secret
+
+Your organization's GovWin administrator provisions API access:
+
+1. Log in to [GovWin IQ](https://iq.govwin.com) as an **administrator**
+2. Navigate to **Admin > Web Service API** (or contact your GovWin account manager to enable WSAPI access)
+3. In the API management section, create or locate your **Client ID** and **Client Secret**
+4. Copy both values — these are organization-level credentials shared across all API users
+
+> **Note:** If you don't see the Web Service API option in Admin, your GovWin subscription may not include WSAPI access. Contact Deltek GovWin support or your account manager to add it.
+
+### 3b. Get Username and Password
+
+The API authenticates as a specific GovWin user:
+
+1. Use an existing GovWin user account, OR create a dedicated API user (recommended for production)
+2. The **username** is the user's email address (e.g., `api-user@company.com`)
+3. The **password** is the user's GovWin login password
+
+> **Important security notes:**
+> - The API user's permissions determine what data is accessible. A user with access to Federal opportunities will only sync Federal data.
+> - GovWin accounts **lock for 30 minutes after 5 failed authentication attempts**. Use a dedicated API user to avoid locking out a human user.
+> - GovWin passwords may need to be updated periodically (check with your admin). If the password changes, update it in AWS Secrets Manager or redeploy with the new value.
+> - The API rate limit of **4,000 calls/hour** is shared across all users in your organization. If other tools also use the WSAPI, coordinate to avoid exhausting the limit.
+
+### 3c. Verify Your Credentials
+
+Before deploying, you can test your credentials locally:
+
+```bash
+# Copy and fill in your .env file
+cp .env.example .env
+# Edit .env with your GovWin credentials
+
+# Load environment and run validation
+source .env
+make validate --skip-hubspot
+```
+
+Or test manually with curl:
+```bash
+curl -X POST https://services.govwin.com/neo-ws/oauth/token \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d "client_id=YOUR_CLIENT_ID&client_secret=YOUR_CLIENT_SECRET&grant_type=password&username=YOUR_EMAIL&password=YOUR_PASSWORD&scope=read"
+```
+
+A successful response returns an `access_token` and `refresh_token`.
 
 ## Step 4: Configure Terraform Variables
 
