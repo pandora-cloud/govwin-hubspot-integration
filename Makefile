@@ -38,7 +38,7 @@ package: ## Package Lambda functions
 	@echo "Cleaning __pycache__ before packaging..."
 	find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
 	@echo "Packaging Lambda functions..."
-	pip install -r requirements.txt -t package/python/
+	pip install --platform manylinux2014_aarch64 --only-binary=:all: --implementation cp --python-version 3.12 -r requirements.txt -t package/python/
 	cd package && zip -r ../lambda-layer.zip python/
 
 clean: ## Remove build artifacts

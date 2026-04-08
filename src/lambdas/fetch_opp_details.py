@@ -1,4 +1,4 @@
-"""Lambda: Fetch full details for a batch of opportunities."""
+"""Fetch full details for a batch of opportunities."""
 
 from __future__ import annotations
 

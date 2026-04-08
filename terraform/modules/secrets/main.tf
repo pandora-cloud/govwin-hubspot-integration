@@ -1,9 +1,24 @@
 variable "name_prefix" { type = string }
-variable "govwin_client_id" { type = string; sensitive = true }
-variable "govwin_client_secret" { type = string; sensitive = true }
-variable "govwin_username" { type = string; sensitive = true }
-variable "govwin_password" { type = string; sensitive = true }
-variable "hubspot_private_app_token" { type = string; sensitive = true }
+variable "govwin_client_id" {
+  type      = string
+  sensitive = true
+}
+variable "govwin_client_secret" {
+  type      = string
+  sensitive = true
+}
+variable "govwin_username" {
+  type      = string
+  sensitive = true
+}
+variable "govwin_password" {
+  type      = string
+  sensitive = true
+}
+variable "hubspot_private_app_token" {
+  type      = string
+  sensitive = true
+}
 
 resource "aws_secretsmanager_secret" "govwin" {
   name                    = "${var.name_prefix}/govwin"

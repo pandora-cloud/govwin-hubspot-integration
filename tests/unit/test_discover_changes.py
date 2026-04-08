@@ -224,7 +224,7 @@ class TestDiscoverChanges:
         from src.lambdas.discover_changes import handler
 
         result = handler({}, None)
-        # Same updateDate — should be filtered out by dedup
+        # Same updateDate - should be filtered out by dedup
         assert result["opportunities_count"] == 0
 
     @respx.mock

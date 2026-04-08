@@ -8,7 +8,7 @@ def test_acquire_under_limit():
     limiter = TokenBucketRateLimiter(max_calls_per_hour=100, safety_margin=10)
     wait = limiter.acquire()
     assert wait == 0.0
-    # acquire() is side-effect-free — no call recorded
+    # acquire() is side-effect-free - no call recorded
     assert limiter.calls_in_window == 0
     # record explicitly
     limiter.record_call()

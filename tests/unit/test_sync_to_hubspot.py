@@ -34,11 +34,14 @@ class TestSyncToHubspot:
                     "results": [
                         {
                             "id": "pipe-001",
-                            "label": "GovWin Pipeline",
+                            "label": "Government",
                             "stages": [
-                                {"id": "s1", "label": "Pre-RFP"},
-                                {"id": "s2", "label": "RFP Released"},
-                                {"id": "s3", "label": "Other"},
+                                {"id": "s1", "label": "Opportunity Identified"},
+                                {"id": "s2", "label": "Reviewing Requirements"},
+                                {"id": "s3", "label": "Preparing Response"},
+                                {"id": "s4", "label": "Submitted"},
+                                {"id": "s5", "label": "Closed Won"},
+                                {"id": "s6", "label": "Closed Lost"},
                             ],
                         }
                     ]

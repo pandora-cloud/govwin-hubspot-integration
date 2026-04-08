@@ -180,11 +180,7 @@ class GovWinAuth:
         return {"Authorization": f"Bearer {self.access_token}"}
 
     def invalidate(self) -> None:
-        """Invalidate the current token, forcing full re-authentication on next use.
-
-        Clears both in-memory state and Secrets Manager cache to prevent
-        stale token reload.
-        """
+        """Clear cached token, forcing re-auth on next use."""
         self._access_token = None
         self._refresh_token = None
         self._expires_at = 0

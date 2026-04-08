@@ -1,9 +1,9 @@
-# GovWin-HubSpot Integration — Terraform Configuration
+# GovWin-HubSpot Integration - Terraform Configuration
 # Copy this file to terraform.tfvars and fill in your values.
 # terraform.tfvars is gitignored and will never be committed.
 
 ###############################################################################
-# Required — GovWin API Credentials
+# Required - GovWin API Credentials
 ###############################################################################
 
 govwin_client_id     = "your-govwin-client-id"
@@ -12,20 +12,21 @@ govwin_username      = "your-govwin-email@company.com"
 govwin_password      = "your-govwin-password"
 
 ###############################################################################
-# Required — HubSpot Credentials
+# Required - HubSpot Credentials
 ###############################################################################
 
 hubspot_private_app_token = "pat-na1-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
 
 ###############################################################################
-# Optional — AWS Configuration
+# Optional - AWS Configuration
 ###############################################################################
 
-# aws_region = "us-east-1"
+# aws_profile = "default"             # AWS CLI profile name
+# aws_region  = "us-east-1"
 # environment = "prod"
 
 ###############################################################################
-# Optional — Sync Configuration
+# Optional - Sync Configuration
 ###############################################################################
 
 # sync_schedule          = "rate(4 hours)"   # How often to sync
@@ -36,7 +37,7 @@ hubspot_private_app_token = "pat-na1-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
 # batch_size             = 10                # Opportunities per batch (max 25)
 
 ###############################################################################
-# Optional — Opportunity Filtering (choose one or combine)
+# Optional - Opportunity Filtering (choose one or combine)
 ###############################################################################
 # By default, only opportunities your BD team marks for "Web Services Download"
 # in GovWin IQ are synced. Set govwin_marked_version = "" to disable and sync all.
@@ -46,14 +47,14 @@ hubspot_private_app_token = "pat-na1-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
 # govwin_bookmarked_only = false             # Only sync bookmarked opps
 
 ###############################################################################
-# Optional — Notifications
+# Optional - Notifications
 ###############################################################################
 
 # enable_notifications = true
 # notification_email   = "alerts@company.com"
 
 ###############################################################################
-# Optional — Tags
+# Optional - Tags
 ###############################################################################
 
 # tags = {

@@ -1,4 +1,4 @@
-"""Lambda: One-time HubSpot setup — create custom properties, groups, and pipeline."""
+"""One-time HubSpot setup: create custom properties, groups, and pipeline."""
 
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
     - All custom properties
     - GovWin deal pipeline with stages
 
-    This Lambda is idempotent — safe to run multiple times.
+    This Lambda is idempotent and safe to run multiple times.
     """
     config = load_config()
 

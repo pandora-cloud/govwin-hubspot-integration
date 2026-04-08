@@ -1,4 +1,4 @@
-"""Lambda: Push fetched opportunity data to HubSpot."""
+"""Push fetched opportunity data to HubSpot."""
 
 from __future__ import annotations
 

@@ -1,41 +1,3 @@
-terraform {
-  required_version = ">= 1.11"
-
-  required_providers {
-    aws = {
-      source  = "hashicorp/aws"
-      version = "~> 5.0"
-    }
-  }
-
-  # S3 backend with native locking (no DynamoDB needed).
-  # Configure via: terraform init -backend-config=backend.hcl
-  # See terraform/backend.hcl.example for the config file format.
-  #
-  # backend "s3" {
-  #   bucket       = "your-terraform-state-bucket"
-  #   key          = "govwin-hubspot/terraform.tfstate"
-  #   region       = "us-east-1"
-  #   encrypt      = true
-  #   use_lockfile = true
-  # }
-}
-
-provider "aws" {
-  region = var.aws_region
-
-  default_tags {
-    tags = merge(
-      {
-        Project     = var.project_name
-        Environment = var.environment
-        ManagedBy   = "terraform"
-      },
-      var.tags
-    )
-  }
-}
-
 locals {
   name_prefix = "${var.project_name}-${var.environment}"
 }
@@ -85,6 +47,7 @@ module "lambda" {
   source = "./modules/lambda"
 
   name_prefix               = local.name_prefix
+  aws_profile               = var.aws_profile
   aws_region                = var.aws_region
   sync_state_table_name     = module.dynamodb.sync_state_table_name
   sync_state_table_arn      = module.dynamodb.sync_state_table_arn

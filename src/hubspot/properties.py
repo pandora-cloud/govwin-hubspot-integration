@@ -20,6 +20,14 @@ PROPERTY_GROUP = {
 
 DEAL_PROPERTIES: list[HubSpotProperty] = [
     HubSpotProperty(
+        name="govwin_id",
+        label="GovWin ID",
+        type="string",
+        fieldType="text",
+        hasUniqueValue=True,
+        description="Unique GovWin opportunity ID used for deduplication",
+    ),
+    HubSpotProperty(
         name="govwin_opp_id",
         label="GovWin Opportunity ID",
         type="string",
@@ -269,8 +277,17 @@ DEAL_PROPERTIES: list[HubSpotProperty] = [
 
 COMPANY_PROPERTIES: list[HubSpotProperty] = [
     HubSpotProperty(
+        name="govwin_entity_id",
+        label="GovWin Entity ID (Key)",
+        type="string",
+        fieldType="text",
+        hasUniqueValue=True,
+        groupName="govwin",
+        description="Unique GovWin entity ID used for deduplication",
+    ),
+    HubSpotProperty(
         name="govwin_gov_entity_id",
-        label="GovWin Entity ID",
+        label="GovWin Gov Entity ID",
         type="string",
         fieldType="text",
         groupName="govwin",
@@ -338,44 +355,28 @@ CONTACT_PROPERTIES: list[HubSpotProperty] = [
 ]
 
 # ---------------------------------------------------------------------------
-# Pipeline Definition
+# Pipeline Configuration
 # ---------------------------------------------------------------------------
 
-GOVWIN_PIPELINE = {
-    "label": "GovWin Pipeline",
-    "displayOrder": 1,
-    "stages": [
-        {"label": "Pre-RFP", "displayOrder": 0, "metadata": {"probability": "0.1"}},
-        {"label": "RFP Released", "displayOrder": 1, "metadata": {"probability": "0.2"}},
-        {"label": "Proposal Submitted", "displayOrder": 2, "metadata": {"probability": "0.4"}},
-        {"label": "Under Evaluation", "displayOrder": 3, "metadata": {"probability": "0.5"}},
-        {"label": "Other", "displayOrder": 4, "metadata": {"probability": "0.2"}},
-        {
-            "label": "Awarded (Won)",
-            "displayOrder": 5,
-            "metadata": {"probability": "1.0", "isClosed": "true"},
-        },
-        {
-            "label": "Cancelled (Lost)",
-            "displayOrder": 6,
-            "metadata": {"probability": "0.0", "isClosed": "true"},
-        },
-    ],
-}
+# Use an existing HubSpot pipeline instead of creating a new one.
+# This avoids hitting the pipeline limit on non-Enterprise accounts.
+PIPELINE_NAME = "Government"
 
-# Map from GovWin status to pipeline stage label
+# Map GovWin statuses to stage labels in the existing pipeline.
+# These must match the stage labels in your HubSpot "Government" pipeline.
 GOVWIN_STATUS_TO_STAGE: dict[str, str] = {
-    "Pre-RFP": "Pre-RFP",
-    "Pre-Solicitation": "Pre-RFP",
-    "RFP Released": "RFP Released",
-    "RFP": "RFP Released",
-    "Solicitation": "RFP Released",
-    "Proposal Submitted": "Proposal Submitted",
-    "Under Evaluation": "Under Evaluation",
-    "Evaluation": "Under Evaluation",
-    "Awarded": "Awarded (Won)",
-    "Award": "Awarded (Won)",
-    "Cancelled": "Cancelled (Lost)",
-    "Closed": "Cancelled (Lost)",
-    "Lost": "Cancelled (Lost)",
+    "Pre-RFP": "Opportunity Identified",
+    "Pre-Solicitation": "Opportunity Identified",
+    "RFP Released": "Reviewing Requirements",
+    "RFP": "Reviewing Requirements",
+    "Solicitation": "Reviewing Requirements",
+    "Proposal Submitted": "Preparing Response",
+    "Under Evaluation": "Submitted",
+    "Evaluation": "Submitted",
+    "Awarded": "Closed Won",
+    "Award": "Closed Won",
+    "Cancelled": "Closed Lost",
+    "Closed": "Closed Lost",
+    "Lost": "Closed Lost",
+    "Declined": "Declined",
 }

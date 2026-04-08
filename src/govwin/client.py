@@ -98,7 +98,7 @@ class GovWinClient:
         self._rate_limiter.record_call()
 
         if response.status_code == 401:
-            # Token expired — invalidate and raise so tenacity retries with fresh token
+            # Token expired - invalidate and raise so tenacity retries with fresh token
             self._auth.invalidate()
             raise GovWinAPIError("Token expired", status_code=401)
 

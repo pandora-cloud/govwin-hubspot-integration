@@ -26,7 +26,7 @@ cd govwin-hubspot-integration
 
 HubSpot offers two methods for API authentication. Use **Service Keys** (recommended) or Private Apps (legacy).
 
-### Option A: Service Key (Recommended — 2026+)
+### Option A: Service Key (Recommended, 2026+)
 
 Service Keys are HubSpot's modern replacement for Private Apps. They provide a non-expiring bearer token for API-only integrations.
 
@@ -43,9 +43,9 @@ Service Keys are HubSpot's modern replacement for Private Apps. They provide a n
    - `crm.schemas.contacts.read` and `crm.schemas.contacts.write`
 6. Click **Create** and copy the token (starts with `pat-na1-` or `pat-na2-`)
 
-> **Note:** Service Keys are in public beta (as of February 2026). If you don't see "Service Keys" in your HubSpot settings, use Option B below.
+Service Keys are in public beta (as of February 2026). If you don't see "Service Keys" in your HubSpot settings, use Option B below.
 
-### Option B: Private App (Legacy — still works)
+### Option B: Private App (Legacy, still works)
 
 1. Log in to HubSpot as a **Super Admin**
 2. Go to **Settings > Integrations > Private Apps**
@@ -54,7 +54,7 @@ Service Keys are HubSpot's modern replacement for Private Apps. They provide a n
 5. Under the **Scopes** tab, enable the same 12 scopes listed in Option A
 6. Click **Create app** and copy the access token
 
-> **Note:** Private Apps are marked as "legacy" by HubSpot. They still work and have no announced sunset date, but new integrations should prefer Service Keys when available.
+Heads up: Private Apps are marked as "legacy" by HubSpot. They still work and have no announced sunset date, but new integrations should prefer Service Keys when available.
 
 ### Token Format
 
@@ -62,7 +62,7 @@ Both options produce a bearer token in the same format:
 ```
 pat-na1-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
 ```
-This token does not expire. Store it securely — anyone with this token has full read/write access to your CRM data within the granted scopes.
+This token does not expire. Store it securely. Anyone with this token has full read/write access to your CRM data within the granted scopes.
 
 ## Step 3: Get GovWin API Credentials
 
@@ -75,7 +75,7 @@ Your organization's GovWin administrator provisions API access:
 1. Log in to [GovWin IQ](https://iq.govwin.com) as an **administrator**
 2. Navigate to **Admin > Web Service API** (or contact your GovWin account manager to enable WSAPI access)
 3. In the API management section, create or locate your **Client ID** and **Client Secret**
-4. Copy both values — these are organization-level credentials shared across all API users
+4. Copy both values. These are organization-level credentials shared across all API users
 
 > **Note:** If you don't see the Web Service API option in Admin, your GovWin subscription may not include WSAPI access. Contact Deltek GovWin support or your account manager to add it.
 
@@ -143,12 +143,33 @@ govwin_opp_types   = "ALL"
 
 > **Security**: `terraform.tfvars` is in `.gitignore` and will never be committed.
 
-## Step 5: Deploy
+## Step 5: Build the Lambda Layer
+
+Before deploying, you need to package the Python dependencies into a Lambda layer zip. The Lambdas run on ARM64 (Graviton2) for cost savings, so the layer must be built for that architecture even if your dev machine is x86_64 or Apple Silicon:
+
+```bash
+make package
+```
+
+This runs:
+```bash
+pip install \
+  --platform manylinux2014_aarch64 \
+  --only-binary=:all: \
+  --implementation cp \
+  --python-version 3.12 \
+  -r requirements.txt \
+  -t package/python/
+```
+
+The result is `lambda-layer.zip` (~21MB) in the project root. Terraform references this file when creating the Lambda layer. Rebuild it whenever you change `requirements.txt`.
+
+## Step 6: Deploy
 
 ```bash
 cd terraform
 
-# Initialize Terraform (downloads providers)
+# Initialize Terraform (downloads providers and configures backend)
 terraform init
 
 # Preview what will be created
@@ -169,7 +190,7 @@ Terraform will create:
 - IAM roles and policies
 - CloudWatch log groups
 
-## Step 6: Mark Opportunities for Sync
+## Step 7: Mark Opportunities for Sync
 
 By default, only opportunities your BD team explicitly marks in GovWin IQ will sync to HubSpot. This is controlled by the `govwin_marked_version` variable (default: `"2.2"`).
 
@@ -183,7 +204,7 @@ By default, only opportunities your BD team explicitly marks in GovWin IQ will s
 - `govwin_bookmarked_only = true` -- sync only bookmarked opps
 - `govwin_marked_version = ""` -- disable filtering, sync all opps (not recommended for production)
 
-## Step 7: Verify Deployment
+## Step 8: Verify Deployment
 
 ### Check HubSpot Setup
 
@@ -211,7 +232,7 @@ aws stepfunctions start-execution \
 - **CloudWatch Logs**: Detailed logs for each Lambda function
 - **SNS Notifications**: Summary email after each sync (if notification_email is set)
 
-## Step 7: (Optional) Configure SaaSify ACE Connector
+## Step 9: (Optional) Configure SaaSify ACE Connector
 
 If you want to submit synced deals to AWS Partner Central:
 

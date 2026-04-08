@@ -1,0 +1,18 @@
+# Terraform S3 backend configuration.
+# Copy to backend.tf and fill in your values: cp backend.tf.example backend.tf
+# backend.tf is gitignored; each deployer provides their own.
+#
+# Prerequisites:
+#   - S3 bucket with versioning enabled
+#   - Terraform >= 1.11 (for use_lockfile native S3 locking)
+
+terraform {
+  backend "s3" {
+    bucket       = "your-terraform-state-bucket"
+    key          = "govwin-hubspot/terraform.tfstate"
+    region       = "us-east-1"
+    encrypt      = true
+    use_lockfile = true
+    profile      = "default"
+  }
+}
