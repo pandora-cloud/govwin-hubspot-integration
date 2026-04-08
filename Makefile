@@ -68,7 +68,7 @@ local-down: ## Stop LocalStack and clean up
 # ---------------------------------------------------------------------------
 
 validate: ## Validate credentials and connectivity (GovWin, HubSpot, AWS)
-	python scripts/validate.py
+	@if [ -f .env ]; then export $$(grep -v '^\#' .env | grep -v '^$$' | xargs) && python scripts/validate.py; else echo "No .env file found. Copy .env.example to .env and fill in credentials."; exit 1; fi
 
 dry-run: ## Dry-run sync: discover and map opps without writing to HubSpot
-	python scripts/dry_run.py --limit 5
+	@if [ -f .env ]; then export $$(grep -v '^\#' .env | grep -v '^$$' | xargs) && python scripts/dry_run.py --limit 5; else echo "No .env file found. Copy .env.example to .env and fill in credentials."; exit 1; fi

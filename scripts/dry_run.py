@@ -38,16 +38,45 @@ logger = logging.getLogger(__name__)
 
 
 def _inject_env_credentials(auth: GovWinAuth) -> None:
-    """Inject credentials from env vars into auth cache, bypassing Secrets Manager."""
+    """Pre-authenticate using env vars, fully bypassing Secrets Manager."""
     client_id = os.environ.get("GOVWIN_CLIENT_ID")
-    if client_id:
-        auth._credentials = {
+    if not client_id:
+        return
+
+    # Inject credentials cache so _load_credentials skips Secrets Manager
+    auth._credentials = {
+        "client_id": client_id,
+        "client_secret": os.environ.get("GOVWIN_CLIENT_SECRET", ""),
+        "username": os.environ.get("GOVWIN_USERNAME", ""),
+        "password": os.environ.get("GOVWIN_PASSWORD", ""),
+    }
+
+    # Pre-authenticate directly so access_token doesn't hit Secrets Manager
+    import httpx
+
+    base_url = auth._config.govwin.base_url
+    response = httpx.post(
+        f"{base_url}/oauth/token",
+        data={
             "client_id": client_id,
-            "client_secret": os.environ.get("GOVWIN_CLIENT_SECRET", ""),
-            "username": os.environ.get("GOVWIN_USERNAME", ""),
-            "password": os.environ.get("GOVWIN_PASSWORD", ""),
-        }
-        logger.info("Using GovWin credentials from environment variables")
+            "client_secret": auth._credentials["client_secret"],
+            "grant_type": "password",
+            "username": auth._credentials["username"],
+            "password": auth._credentials["password"],
+            "scope": "read",
+        },
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+        timeout=30,
+    )
+    response.raise_for_status()
+    token_data = response.json()
+
+    import time
+
+    auth._access_token = token_data["access_token"]
+    auth._refresh_token = token_data.get("refresh_token")
+    auth._expires_at = time.time() + token_data.get("expires_in", 43200)
+    print(f"  Authenticated via env vars (token expires in {token_data.get('expires_in')}s)")
 
 
 def main() -> int:
