@@ -46,11 +46,11 @@ src/
   sync/
     mapper.py            — GovWin → HubSpot field transformation + NAICS→industry mapping
     state.py             — DynamoDB state management (sync cursors, ID mappings)
-    dedup.py             — Change detection: filter by updateDate
+    dedup.py             — Change detection: filter by updateDate (timezone-aware)
     orchestrator.py      — High-level sync coordination
   lambdas/
     authenticate.py      — Get/refresh GovWin OAuth token
-    discover_changes.py  — Search for updated opportunities
+    discover_changes.py  — Discover opps to sync (marked/saved search/bookmarked/all)
     fetch_opp_details.py — Fetch full opportunity data (bundle)
     sync_to_hubspot.py   — Push to HubSpot via batch APIs
     update_sync_state.py — Persist sync cursor to DynamoDB
@@ -74,6 +74,8 @@ REST/JSON API for retrieving government contracting data. Reference doc: `docs/D
 - **Paging**: Default 10 items, max 100. Response includes `meta.paging`.
 - **Key entities**: Opportunities (OPP/TNS/BID/FBO/OPN/TOP), GovEntities, Companies
 - **Incremental sync**: Track `updateDate` per opportunity; use `oppSelectionDateFrom`.
+- **Marked for download**: `GET /opportunities/?markedVersion=2.2` — BD team marks opps for sync.
+- **Bookmarked**: `GET /opportunities/?markedOpps=true` — user's bookmarked opps.
 
 ### HubSpot CRM API v3
 
@@ -94,3 +96,5 @@ Already installed in HubSpot. Reads deal properties and submits to AWS Partner C
 - **Secrets Manager over SSM**: Automatic rotation support, audit trail
 - **HubSpot batch upsert with idProperty**: Eliminates search-before-upsert, reducing API calls by ~50%
 - **NAICS→AWS industry mapping**: Configurable lookup in `src/sync/mapper.py`
+- **Marked-for-sync default**: Only opps BD team marks in GovWin sync to HubSpot (prevents bulk sync of irrelevant data)
+- **Three discovery modes**: Marked (default), saved search, or bookmarked — configurable via Terraform variables
