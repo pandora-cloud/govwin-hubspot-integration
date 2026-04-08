@@ -45,6 +45,13 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
             "total_batches": len(sync_results),
         }
 
+    # Only write the sync cursor in date-range mode (not marked mode).
+    # In marked mode the cursor is unused; writing it would create a stale
+    # value that could cause issues if the deployment later switches modes.
+    if config.govwin.marked_version:
+        logger.info("Marked mode active — skipping cursor update (not needed)")
+        return {"status": "updated", "mode": "marked"}
+
     timestamp = datetime.now(UTC).strftime("%m/%d/%Y")
     state.set_last_sync_timestamp(timestamp)
 

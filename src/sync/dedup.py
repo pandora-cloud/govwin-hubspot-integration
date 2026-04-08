@@ -4,10 +4,26 @@ from __future__ import annotations
 
 import logging
 
+from dateutil.parser import parse as parse_date
+
 from src.models import GovWinOpportunity
 from src.sync.state import SyncStateManager
 
 logger = logging.getLogger(__name__)
+
+
+def _parse_date_safe(date_str: str | None) -> float:
+    """Parse a date string to a UTC timestamp for comparison.
+
+    Handles ISO-8601 with timezone offsets (e.g., '2025-03-09T02:30:00-05:00')
+    by converting to UTC epoch seconds. Returns 0 on parse failure.
+    """
+    if not date_str:
+        return 0.0
+    try:
+        return parse_date(date_str).timestamp()
+    except (ValueError, OverflowError):
+        return 0.0
 
 
 def filter_changed_opportunities(
@@ -16,7 +32,8 @@ def filter_changed_opportunities(
 ) -> list[GovWinOpportunity]:
     """Filter out opportunities that haven't changed since last sync.
 
-    Compares each opportunity's updateDate against the stored value.
+    Compares each opportunity's updateDate against the stored value using
+    proper datetime parsing (handles timezone offsets correctly).
     Returns only opportunities that are new or have a newer updateDate.
     """
     if not opportunities:
@@ -34,8 +51,8 @@ def filter_changed_opportunities(
         if stored_date is None:
             # New opportunity, never synced
             changed.append(opp)
-        elif opp.update_date and opp.update_date > stored_date:
-            # Updated since last sync
+        elif opp.update_date and _parse_date_safe(opp.update_date) > _parse_date_safe(stored_date):
+            # Updated since last sync (timezone-aware comparison)
             changed.append(opp)
 
     logger.info(

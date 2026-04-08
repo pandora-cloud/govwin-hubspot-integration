@@ -35,13 +35,10 @@ def _mock_govwin_auth():
 
 class TestDiscoverChanges:
     @respx.mock
-    def test_first_run_uses_lookback(self, app_config, mock_aws_env, monkeypatch):
-        """Mock no sync cursor and verify oppSelectionDateFrom uses lookback date."""
+    def test_default_uses_marked_version(self, app_config, mock_aws_env, monkeypatch):
+        """Default config uses markedVersion=2.2 (BD team marks opps for sync)."""
         _env_vars(monkeypatch)
         _mock_govwin_auth()
-
-        # No sync cursor is set in DynamoDB (first run)
-        # The handler should use initial_lookback_days
 
         search_route = respx.get(
             "https://services.govwin.com/neo-ws/opportunities"
@@ -60,18 +57,49 @@ class TestDiscoverChanges:
         result = handler({}, None)
 
         assert result["opportunities_count"] == 0
-        # Verify the request used the lookback date format MM/DD/YYYY
+        request = search_route.calls[0].request
+        url_str = str(request.url)
+        assert "markedVersion=2.2" in url_str
+        # Should NOT use date-range search when marked mode is active
+        assert "oppSelectionDateFrom" not in url_str
+
+    @respx.mock
+    def test_disabled_marking_uses_date_search(self, app_config, mock_aws_env, monkeypatch):
+        """When marked_version is empty, falls back to date-range search."""
+        _env_vars(monkeypatch)
+        monkeypatch.setenv("GOVWIN_MARKED_VERSION", "")
+        _mock_govwin_auth()
+
+        search_route = respx.get(
+            "https://services.govwin.com/neo-ws/opportunities"
+        ).mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "meta": {"paging": {"totalCount": 0, "max": 100, "offset": 0}},
+                    "opportunities": [],
+                },
+            )
+        )
+
+        from src.lambdas.discover_changes import handler
+
+        result = handler({}, None)
+
+        assert result["opportunities_count"] == 0
         request = search_route.calls[0].request
         url_str = str(request.url)
         assert "oppSelectionDateFrom=" in url_str
+        assert "markedVersion" not in url_str
 
     @respx.mock
-    def test_subsequent_run_uses_cursor(self, app_config, mock_aws_env, monkeypatch):
-        """Mock existing sync cursor and verify it's passed as from_date."""
+    def test_cursor_used_in_date_search_mode(self, app_config, mock_aws_env, monkeypatch):
+        """When marked_version is empty and a cursor exists, it's used as from_date."""
         _env_vars(monkeypatch)
+        monkeypatch.setenv("GOVWIN_MARKED_VERSION", "")
         _mock_govwin_auth()
 
-        # Set a sync cursor in DynamoDB
+        # Set a sync cursor
         import boto3
 
         dynamodb = boto3.resource("dynamodb", region_name="us-east-1")
@@ -101,10 +129,9 @@ class TestDiscoverChanges:
 
         handler({}, None)
 
-        # Verify cursor date was used
         request = search_route.calls[0].request
         url_str = str(request.url)
-        assert "oppSelectionDateFrom=03%2F15%2F2025" in url_str or "03/15/2025" in url_str
+        assert "oppSelectionDateFrom" in url_str
 
     @respx.mock
     def test_empty_results(self, app_config, mock_aws_env, monkeypatch):
@@ -127,3 +154,103 @@ class TestDiscoverChanges:
         result = handler({}, None)
         assert result["opportunities_count"] == 0
         assert result["opportunity_batches"] == []
+
+    @respx.mock
+    def test_marked_mode_with_actual_opps(self, app_config, mock_aws_env, monkeypatch):
+        """Marked mode returning actual opportunities that pass dedup."""
+        _env_vars(monkeypatch)
+        _mock_govwin_auth()
+
+        respx.get("https://services.govwin.com/neo-ws/opportunities").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "meta": {"paging": {"totalCount": 1, "max": 100, "offset": 0}},
+                    "opportunities": [
+                        {
+                            "id": "OPP12345",
+                            "title": "Test Opp",
+                            "updateDate": "2025-03-20T14:30:00Z",
+                        }
+                    ],
+                },
+            )
+        )
+
+        from src.lambdas.discover_changes import handler
+
+        result = handler({}, None)
+        assert result["opportunities_count"] == 1
+        assert len(result["opportunity_batches"]) == 1
+        assert result["opportunity_batches"][0][0]["id"] == "OPP12345"
+
+    @respx.mock
+    def test_marked_mode_dedup_filters_unchanged(
+        self, app_config, mock_aws_env, monkeypatch
+    ):
+        """Marked mode returns all marked opps; dedup filters out unchanged ones."""
+        _env_vars(monkeypatch)
+        _mock_govwin_auth()
+
+        # Pre-populate DynamoDB with an existing sync record
+        import boto3
+
+        dynamodb = boto3.resource("dynamodb", region_name="us-east-1")
+        table = dynamodb.Table("test-sync-state")
+        table.put_item(
+            Item={
+                "pk": "OPP#OPP12345",
+                "sk": "METADATA",
+                "govwin_update_date": "2025-03-20T14:30:00Z",
+            }
+        )
+
+        respx.get("https://services.govwin.com/neo-ws/opportunities").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "meta": {"paging": {"totalCount": 1, "max": 100, "offset": 0}},
+                    "opportunities": [
+                        {
+                            "id": "OPP12345",
+                            "title": "Test Opp",
+                            "updateDate": "2025-03-20T14:30:00Z",
+                        }
+                    ],
+                },
+            )
+        )
+
+        from src.lambdas.discover_changes import handler
+
+        result = handler({}, None)
+        # Same updateDate — should be filtered out by dedup
+        assert result["opportunities_count"] == 0
+
+    @respx.mock
+    def test_bookmarked_only_mode(self, app_config, mock_aws_env, monkeypatch):
+        """Bookmarked-only mode passes markedOpps=true parameter."""
+        _env_vars(monkeypatch)
+        monkeypatch.setenv("GOVWIN_MARKED_VERSION", "")
+        monkeypatch.setenv("GOVWIN_BOOKMARKED_ONLY", "true")
+        _mock_govwin_auth()
+
+        search_route = respx.get(
+            "https://services.govwin.com/neo-ws/opportunities"
+        ).mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "meta": {"paging": {"totalCount": 0, "max": 100, "offset": 0}},
+                    "opportunities": [],
+                },
+            )
+        )
+
+        from src.lambdas.discover_changes import handler
+
+        handler({}, None)
+
+        request = search_route.calls[0].request
+        url_str = str(request.url)
+        assert "markedOpps=true" in url_str

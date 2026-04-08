@@ -135,6 +135,7 @@ class GovWinClient:
         opp_selection_date_to: str = "",
         opp_category: str = "2",
         saved_search_id: str = "",
+        bookmarked_only: bool = False,
         q: str = "",
         max_results: int = 100,
         offset: int = 0,
@@ -160,6 +161,8 @@ class GovWinClient:
             params["oppSelectionDateTo"] = opp_selection_date_to
         if saved_search_id:
             params["savedSearchId"] = saved_search_id
+        if bookmarked_only:
+            params["markedOpps"] = "true"
         if q:
             params["q"] = q
 
@@ -170,6 +173,65 @@ class GovWinClient:
         ]
         return opps, meta
 
+    def get_marked_opportunities(
+        self,
+        *,
+        marked_version: str = "2.2",
+        opp_type: str = "ALL",
+        max_results: int = 100,
+        offset: int = 0,
+    ) -> tuple[list[GovWinOpportunity], GovWinMeta]:
+        """Get opportunities marked for download/sync in GovWin.
+
+        marked_version: "2" = Deltek CRM, "2.2" = Web Services Download
+        """
+        params: dict[str, Any] = {
+            "markedVersion": marked_version,
+            "max": min(max_results, self._config.govwin.max_page_size),
+            "offset": offset,
+        }
+        if opp_type and opp_type != "ALL":
+            params["oppType"] = opp_type
+
+        data = self._get("opportunities", params=params)
+        meta = GovWinMeta.model_validate(data.get("meta", {}))
+        opps = [
+            GovWinOpportunity.model_validate(o) for o in data.get("opportunities", [])
+        ]
+        return opps, meta
+
+    def get_all_marked_opportunities(
+        self,
+        *,
+        marked_version: str = "2.2",
+        opp_type: str = "ALL",
+    ) -> list[GovWinOpportunity]:
+        """Get all marked opportunities with automatic pagination."""
+        all_opps: list[GovWinOpportunity] = []
+        offset = 0
+        page_size = self._config.govwin.max_page_size
+        total_available = 0
+
+        while True:
+            opps, meta = self.get_marked_opportunities(
+                marked_version=marked_version,
+                opp_type=opp_type,
+                max_results=page_size,
+                offset=offset,
+            )
+            all_opps.extend(opps)
+            total_available = meta.paging.total_count
+
+            if not opps or offset + page_size >= total_available:
+                break
+            offset += page_size
+
+        logger.info(
+            "Retrieved %d marked opportunities (version=%s, total: %d)",
+            len(all_opps), marked_version, total_available,
+        )
+        return all_opps
+
     def search_all_opportunities(
         self, **kwargs: Any
     ) -> list[GovWinOpportunity]:
@@ -177,19 +239,19 @@ class GovWinClient:
         all_opps: list[GovWinOpportunity] = []
         offset = 0
         page_size = self._config.govwin.max_page_size
+        total_available = 0
 
         while True:
             opps, meta = self.search_opportunities(
                 max_results=page_size, offset=offset, **kwargs
             )
             all_opps.extend(opps)
+            total_available = meta.paging.total_count
 
-            total = meta.paging.total_count
-            if not opps or offset + page_size >= total:
+            if not opps or offset + page_size >= total_available:
                 break
             offset += page_size
 
-        total_available = total if opps else 0
         logger.info("Retrieved %d opportunities (total: %d)", len(all_opps), total_available)
         return all_opps
 
