@@ -14,7 +14,9 @@ class GovWinConfig:
     token_expiry_buffer_seconds: int = 300  # Refresh 5 min before expiry
     opp_types: str = "ALL"  # OPP, TNS, BID, FBO, OPN, TOP, ALL
     market: str = ""  # Federal, SLED, or empty for both
-    saved_search_id: str = ""
+    saved_search_id: str = ""  # GovWin saved search ID (filter #1)
+    bookmarked_only: bool = False  # Only sync bookmarked opps (filter #2)
+    marked_version: str = "2.2"  # "2.2" (Web Services), "2" (Deltek CRM), "" (disabled)
 
 
 @dataclass(frozen=True)
@@ -65,6 +67,8 @@ def load_config() -> AppConfig:
             opp_types=os.environ.get("GOVWIN_OPP_TYPES", "ALL"),
             market=os.environ.get("GOVWIN_MARKET", ""),
             saved_search_id=os.environ.get("GOVWIN_SAVED_SEARCH_ID", ""),
+            bookmarked_only=os.environ.get("GOVWIN_BOOKMARKED_ONLY", "false").lower() == "true",
+            marked_version=os.environ.get("GOVWIN_MARKED_VERSION", "2.2"),
         ),
         hubspot=HubSpotConfig(
             base_url=os.environ.get("HUBSPOT_BASE_URL", "https://api.hubapi.com"),

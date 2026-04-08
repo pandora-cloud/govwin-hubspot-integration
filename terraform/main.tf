@@ -102,6 +102,8 @@ module "lambda" {
   govwin_opp_types          = var.govwin_opp_types
   govwin_market             = var.govwin_market
   govwin_saved_search_id    = var.govwin_saved_search_id
+  govwin_bookmarked_only    = var.govwin_bookmarked_only
+  govwin_marked_version     = var.govwin_marked_version
   initial_lookback_days     = var.initial_lookback_days
   batch_size                = var.batch_size
   max_concurrency           = var.max_concurrency

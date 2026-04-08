@@ -88,9 +88,26 @@ variable "govwin_market" {
 }
 
 variable "govwin_saved_search_id" {
-  description = "Optional GovWin saved search ID to use instead of broad search"
+  description = "Optional GovWin saved search ID — only sync opps matching this search"
   type        = string
   default     = ""
+}
+
+variable "govwin_bookmarked_only" {
+  description = "Only sync opportunities the user has bookmarked in GovWin"
+  type        = bool
+  default     = false
+}
+
+variable "govwin_marked_version" {
+  description = "Only sync opps marked for download in GovWin: '2.2' (Web Services), '2' (Deltek CRM), or '' (disabled — sync all)"
+  type        = string
+  default     = "2.2"
+
+  validation {
+    condition     = contains(["", "2", "2.2"], var.govwin_marked_version)
+    error_message = "govwin_marked_version must be '2.2' (Web Services), '2' (Deltek CRM), or '' (disabled)."
+  }
 }
 
 variable "initial_lookback_days" {

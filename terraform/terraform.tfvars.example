@@ -31,10 +31,19 @@ hubspot_private_app_token = "pat-na1-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
 # sync_schedule          = "rate(4 hours)"   # How often to sync
 # govwin_opp_types       = "ALL"             # OPP, BID, TNS, FBO, OPN, TOP, ALL
 # govwin_market          = ""                # Federal, SLED, or both (empty)
-# govwin_saved_search_id = ""                # Use a saved search instead of broad query
 # initial_lookback_days  = 365               # Days to look back on first sync
 # max_concurrency        = 2                 # Parallel batches in Step Function
-# batch_size             = 50                # Opportunities per batch
+# batch_size             = 10                # Opportunities per batch (max 25)
+
+###############################################################################
+# Optional — Opportunity Filtering (choose one or combine)
+###############################################################################
+# By default, only opportunities your BD team marks for "Web Services Download"
+# in GovWin IQ are synced. Set govwin_marked_version = "" to disable and sync all.
+
+# govwin_marked_version  = "2.2"             # "2.2" (Web Services), "2" (Deltek CRM), "" (disabled)
+# govwin_saved_search_id = ""                # GovWin saved search ID (filter by search)
+# govwin_bookmarked_only = false             # Only sync bookmarked opps
 
 ###############################################################################
 # Optional — Notifications

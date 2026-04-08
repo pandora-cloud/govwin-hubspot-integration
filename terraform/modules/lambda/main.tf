@@ -16,6 +16,8 @@ variable "dlq_arn" { type = string }
 variable "govwin_opp_types" { type = string; default = "ALL" }
 variable "govwin_market" { type = string; default = "" }
 variable "govwin_saved_search_id" { type = string; default = "" }
+variable "govwin_bookmarked_only" { type = bool; default = false }
+variable "govwin_marked_version" { type = string; default = "2.2" }
 variable "initial_lookback_days" { type = number; default = 365 }
 variable "batch_size" { type = number; default = 10 }
 variable "max_concurrency" { type = number; default = 2 }
@@ -138,6 +140,8 @@ locals {
     GOVWIN_OPP_TYPES        = var.govwin_opp_types
     GOVWIN_MARKET           = var.govwin_market
     GOVWIN_SAVED_SEARCH_ID  = var.govwin_saved_search_id
+    GOVWIN_BOOKMARKED_ONLY  = tostring(var.govwin_bookmarked_only)
+    GOVWIN_MARKED_VERSION   = var.govwin_marked_version
     INITIAL_LOOKBACK_DAYS   = tostring(var.initial_lookback_days)
     BATCH_SIZE              = tostring(var.batch_size)
     MAX_CONCURRENCY         = tostring(var.max_concurrency)
