@@ -1,4 +1,6 @@
-variable "name_prefix" { type = string }
+variable "name_prefix" {
+  type = string
+}
 variable "enable_notifications" {
   type    = bool
   default = true

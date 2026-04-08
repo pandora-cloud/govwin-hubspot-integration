@@ -1,4 +1,6 @@
-variable "name_prefix" { type = string }
+variable "name_prefix" {
+  type = string
+}
 variable "govwin_client_id" {
   type      = string
   sensitive = true
