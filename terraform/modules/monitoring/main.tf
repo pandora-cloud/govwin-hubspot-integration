@@ -28,6 +28,14 @@ resource "aws_sqs_queue" "dlq" {
   sqs_managed_sse_enabled    = true
 }
 
-output "sns_topic_arn" { value = aws_sns_topic.sync_notifications.arn }
-output "dlq_url" { value = aws_sqs_queue.dlq.url }
-output "dlq_arn" { value = aws_sqs_queue.dlq.arn }
+output "sns_topic_arn" {
+  value = aws_sns_topic.sync_notifications.arn
+}
+
+output "dlq_url" {
+  value = aws_sqs_queue.dlq.url
+}
+
+output "dlq_arn" {
+  value = aws_sqs_queue.dlq.arn
+}

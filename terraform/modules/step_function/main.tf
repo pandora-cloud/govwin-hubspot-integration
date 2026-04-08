@@ -131,6 +131,14 @@ resource "aws_cloudwatch_event_target" "sync_sfn" {
 
 # --- Outputs ---
 
-output "state_machine_arn" { value = aws_sfn_state_machine.sync.arn }
-output "state_machine_name" { value = aws_sfn_state_machine.sync.name }
-output "eventbridge_rule_name" { value = aws_cloudwatch_event_rule.sync_schedule.name }
+output "state_machine_arn" {
+  value = aws_sfn_state_machine.sync.arn
+}
+
+output "state_machine_name" {
+  value = aws_sfn_state_machine.sync.name
+}
+
+output "eventbridge_rule_name" {
+  value = aws_cloudwatch_event_rule.sync_schedule.name
+}
