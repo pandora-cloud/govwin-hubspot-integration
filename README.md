@@ -98,7 +98,32 @@ All configuration is done via Terraform variables. See [terraform/variables.tf](
 | `sync_schedule` | No | `rate(4 hours)` | How often to sync |
 | `govwin_opp_types` | No | `ALL` | Opportunity types to sync (OPP, BID, TNS, FBO, ALL) |
 | `govwin_market` | No | (both) | Market filter (Federal, SLED, or both) |
+| `govwin_marked_version` | No | `2.2` | Only sync opps marked for download (`2.2`=Web Services, `2`=Deltek CRM, ``=all) |
+| `govwin_saved_search_id` | No | - | Only sync opps matching a GovWin saved search |
+| `govwin_bookmarked_only` | No | `false` | Only sync bookmarked opportunities |
 | `notification_email` | No | - | Email for sync notifications |
+
+### Opportunity Filtering
+
+By default, **only opportunities your BD team marks for sync in GovWin IQ** are synced to HubSpot. This prevents syncing thousands of irrelevant opportunities and keeps your HubSpot pipeline focused.
+
+**How it works:**
+1. Your BD team finds an opportunity in GovWin IQ
+2. They click **"Add to Web Services Download"** on the opportunity detail page
+3. The next sync cycle picks it up and creates/updates the deal in HubSpot
+
+Three filtering modes are available (configurable via Terraform variables):
+
+| Mode | Variable | Description |
+|---|---|---|
+| **Marked for Sync** (default) | `govwin_marked_version = "2.2"` | Only opps marked for "Web Services Download" |
+| Saved Search | `govwin_saved_search_id = "12345"` | Only opps matching a GovWin saved search |
+| Bookmarked Only | `govwin_bookmarked_only = true` | Only bookmarked opps |
+
+To sync **all** opportunities (disable filtering):
+```hcl
+govwin_marked_version = ""
+```
 
 ## Data Mapping
 

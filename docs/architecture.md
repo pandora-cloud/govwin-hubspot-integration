@@ -55,9 +55,11 @@ Start
 [Authenticate] ── Get/refresh GovWin OAuth token from Secrets Manager
   |
   v
-[Discover Changes] ── Search GovWin for opportunities updated since last sync
+[Discover Changes] ── Fetch opportunities to sync (mode-dependent):
+  |                    - Default: get opps marked for "Web Services Download"
+  |                    - Alternative: date-range search with saved search/bookmark filter
   |                    Paginate through results (max 100/page)
-  |                    Compare updateDate against stored values
+  |                    Compare updateDate against stored values (timezone-aware)
   |                    Return list of opportunity IDs needing sync
   |
   v

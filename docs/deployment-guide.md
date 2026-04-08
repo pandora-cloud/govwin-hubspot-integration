@@ -97,7 +97,21 @@ Terraform will create:
 - IAM roles and policies
 - CloudWatch log groups
 
-## Step 6: Verify Deployment
+## Step 6: Mark Opportunities for Sync
+
+By default, only opportunities your BD team explicitly marks in GovWin IQ will sync to HubSpot. This is controlled by the `govwin_marked_version` variable (default: `"2.2"`).
+
+**To mark an opportunity for sync:**
+1. Open the opportunity in GovWin IQ
+2. Click **"Add to Web Services Download"** on the opportunity detail page
+3. The opportunity will be picked up on the next scheduled sync
+
+**Alternative filtering modes** (set in `terraform.tfvars`):
+- `govwin_saved_search_id = "12345"` -- sync opps matching a GovWin saved search
+- `govwin_bookmarked_only = true` -- sync only bookmarked opps
+- `govwin_marked_version = ""` -- disable filtering, sync all opps (not recommended for production)
+
+## Step 7: Verify Deployment
 
 ### Check HubSpot Setup
 
