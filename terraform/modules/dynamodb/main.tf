@@ -1,4 +1,6 @@
-variable "name_prefix" { type = string }
+variable "name_prefix" {
+  type = string
+}
 
 resource "aws_dynamodb_table" "sync_state" {
   name         = "${var.name_prefix}-sync-state"

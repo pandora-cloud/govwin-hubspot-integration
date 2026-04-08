@@ -1,19 +1,44 @@
-variable "name_prefix" { type = string }
+variable "name_prefix" {
+  type = string
+}
+
 variable "sync_schedule" {
   type    = string
   default = "rate(4 hours)"
 }
+
 variable "max_concurrency" {
   type    = number
   default = 2
 }
-variable "authenticate_arn" { type = string }
-variable "discover_changes_arn" { type = string }
-variable "fetch_opp_details_arn" { type = string }
-variable "sync_to_hubspot_arn" { type = string }
-variable "update_sync_state_arn" { type = string }
-variable "handle_error_arn" { type = string }
-variable "lambda_role_arns" { type = list(string) }
+
+variable "authenticate_arn" {
+  type = string
+}
+
+variable "discover_changes_arn" {
+  type = string
+}
+
+variable "fetch_opp_details_arn" {
+  type = string
+}
+
+variable "sync_to_hubspot_arn" {
+  type = string
+}
+
+variable "update_sync_state_arn" {
+  type = string
+}
+
+variable "handle_error_arn" {
+  type = string
+}
+
+variable "lambda_role_arns" {
+  type = list(string)
+}
 
 # --- IAM Role for Step Function ---
 

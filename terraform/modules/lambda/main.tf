@@ -1,19 +1,66 @@
-variable "name_prefix" { type = string }
-variable "aws_profile" { type = string }
-variable "aws_region" { type = string }
-variable "sync_state_table_name" { type = string }
-variable "sync_state_table_arn" { type = string }
-variable "entity_mappings_table_name" { type = string }
-variable "entity_mappings_table_arn" { type = string }
-variable "govwin_secret_arn" { type = string }
-variable "hubspot_secret_arn" { type = string }
-variable "govwin_tokens_secret_arn" { type = string }
-variable "govwin_secret_name" { type = string }
-variable "hubspot_secret_name" { type = string }
-variable "govwin_tokens_secret_name" { type = string }
-variable "sns_topic_arn" { type = string }
-variable "dlq_url" { type = string }
-variable "dlq_arn" { type = string }
+variable "name_prefix" {
+  type = string
+}
+
+variable "aws_profile" {
+  type = string
+}
+
+variable "aws_region" {
+  type = string
+}
+
+variable "sync_state_table_name" {
+  type = string
+}
+
+variable "sync_state_table_arn" {
+  type = string
+}
+
+variable "entity_mappings_table_name" {
+  type = string
+}
+
+variable "entity_mappings_table_arn" {
+  type = string
+}
+
+variable "govwin_secret_arn" {
+  type = string
+}
+
+variable "hubspot_secret_arn" {
+  type = string
+}
+
+variable "govwin_tokens_secret_arn" {
+  type = string
+}
+
+variable "govwin_secret_name" {
+  type = string
+}
+
+variable "hubspot_secret_name" {
+  type = string
+}
+
+variable "govwin_tokens_secret_name" {
+  type = string
+}
+
+variable "sns_topic_arn" {
+  type = string
+}
+
+variable "dlq_url" {
+  type = string
+}
+
+variable "dlq_arn" {
+  type = string
+}
 variable "govwin_opp_types" {
   type    = string
   default = "ALL"
