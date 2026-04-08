@@ -1,0 +1,40 @@
+services:
+  localstack:
+    image: localstack/localstack:latest
+    ports:
+      - "4566:4566"
+    environment:
+      - SERVICES=dynamodb,secretsmanager,sns,sqs
+      - DEBUG=0
+      - DEFAULT_REGION=us-east-1
+    volumes:
+      - "./scripts/localstack-init.sh:/etc/localstack/init/ready.d/init.sh"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4566/_localstack/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  test-runner:
+    build: .
+    depends_on:
+      localstack:
+        condition: service_healthy
+    environment:
+      - AWS_ENDPOINT_URL=http://localstack:4566
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test
+      - AWS_DEFAULT_REGION=us-east-1
+      - SYNC_STATE_TABLE=govwin-hubspot-dev-sync-state
+      - ENTITY_MAPPINGS_TABLE=govwin-hubspot-dev-entity-mappings
+      - GOVWIN_SECRET_NAME=govwin-hubspot-dev/govwin
+      - HUBSPOT_SECRET_NAME=govwin-hubspot-dev/hubspot
+      - GOVWIN_TOKENS_SECRET_NAME=govwin-hubspot-dev/govwin-tokens
+      - SNS_TOPIC_ARN=arn:aws:sns:us-east-1:000000000000:govwin-hubspot-dev-notifications
+      - DLQ_URL=http://localstack:4566/000000000000/govwin-hubspot-dev-dlq
+      - GOVWIN_MARKED_VERSION=2.2
+      - LOG_LEVEL=INFO
+      - ENVIRONMENT=dev
+    volumes:
+      - .:/app
+    command: ["python", "-m", "pytest", "tests/", "-v", "--tb=short"]

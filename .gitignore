@@ -6,6 +6,7 @@ terraform.tfvars
 .terraform.lock.hcl
 .env
 .env.*
+!.env.example
 
 # Python
 __pycache__/
@@ -54,3 +55,6 @@ crash.log
 
 # Terraform lock info
 .terraform.tfstate.lock.info
+
+# Docker overrides
+docker-compose.override.yml
