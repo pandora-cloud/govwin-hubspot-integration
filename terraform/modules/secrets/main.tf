@@ -66,9 +66,26 @@ resource "aws_secretsmanager_secret_version" "govwin_tokens" {
   })
 }
 
-output "govwin_secret_arn" { value = aws_secretsmanager_secret.govwin.arn }
-output "govwin_secret_name" { value = aws_secretsmanager_secret.govwin.name }
-output "hubspot_secret_arn" { value = aws_secretsmanager_secret.hubspot.arn }
-output "hubspot_secret_name" { value = aws_secretsmanager_secret.hubspot.name }
-output "govwin_tokens_secret_arn" { value = aws_secretsmanager_secret.govwin_tokens.arn }
-output "govwin_tokens_secret_name" { value = aws_secretsmanager_secret.govwin_tokens.name }
+output "govwin_secret_arn" {
+  value = aws_secretsmanager_secret.govwin.arn
+}
+
+output "govwin_secret_name" {
+  value = aws_secretsmanager_secret.govwin.name
+}
+
+output "hubspot_secret_arn" {
+  value = aws_secretsmanager_secret.hubspot.arn
+}
+
+output "hubspot_secret_name" {
+  value = aws_secretsmanager_secret.hubspot.name
+}
+
+output "govwin_tokens_secret_arn" {
+  value = aws_secretsmanager_secret.govwin_tokens.arn
+}
+
+output "govwin_tokens_secret_name" {
+  value = aws_secretsmanager_secret.govwin_tokens.name
+}

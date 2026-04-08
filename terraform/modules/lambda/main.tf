@@ -398,13 +398,33 @@ resource "terraform_data" "setup_hubspot" {
 
 # --- Outputs ---
 
-output "authenticate_arn" { value = aws_lambda_function.authenticate.arn }
-output "discover_changes_arn" { value = aws_lambda_function.discover_changes.arn }
-output "fetch_opp_details_arn" { value = aws_lambda_function.fetch_opp_details.arn }
-output "sync_to_hubspot_arn" { value = aws_lambda_function.sync_to_hubspot.arn }
-output "update_sync_state_arn" { value = aws_lambda_function.update_sync_state.arn }
-output "setup_hubspot_arn" { value = aws_lambda_function.setup_hubspot.arn }
-output "handle_error_arn" { value = aws_lambda_function.handle_error.arn }
+output "authenticate_arn" {
+  value = aws_lambda_function.authenticate.arn
+}
+
+output "discover_changes_arn" {
+  value = aws_lambda_function.discover_changes.arn
+}
+
+output "fetch_opp_details_arn" {
+  value = aws_lambda_function.fetch_opp_details.arn
+}
+
+output "sync_to_hubspot_arn" {
+  value = aws_lambda_function.sync_to_hubspot.arn
+}
+
+output "update_sync_state_arn" {
+  value = aws_lambda_function.update_sync_state.arn
+}
+
+output "setup_hubspot_arn" {
+  value = aws_lambda_function.setup_hubspot.arn
+}
+
+output "handle_error_arn" {
+  value = aws_lambda_function.handle_error.arn
+}
 
 output "all_lambda_arns" {
   value = [
