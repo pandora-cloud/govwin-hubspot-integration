@@ -84,18 +84,6 @@ Tested against live GovWin and HubSpot APIs on 2026-04-08.
 | 24 | API call efficiency | PASS | 1 call for "no changes" check |
 | 25 | ARM64 (Graviton2) Lambda | PASS | All 7 functions on arm64 |
 
-### Not Yet Tested (Needs Real-World Time)
-
-| # | Test | How to Verify |
-|---|---|---|
-| 26 | Update detection | Change an opp's status in GovWin, wait for sync, check HubSpot stage updates |
-| 27 | EventBridge auto-trigger | Check Step Function execution history after 4+ hours |
-| 28 | BID opportunity type | Mark a BID-type opp for sync |
-| 29 | TNS (TOON) opportunity type | Mark a TNS-type opp for sync |
-| 30 | FBO (SAM Notice) type | Mark an FBO-type opp for sync |
-| 31 | Large batch (50+ opps) | Mark many opps and verify rate limiting works |
-| 32 | ACE submission via SaaSify | Fill 3 manual fields on a synced deal, submit to AWS Partner Central |
-
 ### Data Model Fixes from Live Testing
 
 These issues were found and fixed during production testing with real GovWin data:

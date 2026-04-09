@@ -2,45 +2,13 @@
 
 ## System Context
 
-This integration sits between two external APIs and orchestrates data flow on AWS:
+This integration sits between two external APIs and orchestrates data flow on AWS.
 
-```
-                    +-------------------+
-                    |   Deltek GovWin   |
-                    |    WSAPI V3       |
-                    +--------+----------+
-                             |
-                    OAuth2 + REST/JSON
-                             |
-                             v
-+---------------------------------------------------+
-|                    AWS Cloud                       |
-|                                                    |
-|  EventBridge ──> Step Functions ──> Lambda (x7)   |
-|                       |                            |
-|                       v                            |
-|                   DynamoDB                         |
-|              (sync state + mappings)               |
-|                                                    |
-|  Secrets Manager    SNS (alerts)    SQS (DLQ)     |
-+---------------------------------------------------+
-                             |
-                    REST/JSON + Bearer token
-                             |
-                             v
-                    +-------------------+
-                    |   HubSpot CRM     |
-                    |   (Deals, etc.)   |
-                    +--------+----------+
-                             |
-                    SaaSify ACE Connector (existing)
-                             |
-                             v
-                    +-------------------+
-                    | AWS Partner       |
-                    | Central (ACE)     |
-                    +-------------------+
-```
+![Architecture Diagram](diagrams/architecture.svg)
+
+The pipeline flows from GovWin IQ through this integration into HubSpot CRM, and optionally on to AWS Partner Central via the SaaSify ACE Connector.
+
+![Pipeline Overview](diagrams/pipeline-overview.svg)
 
 ## Step Function Workflow
 
