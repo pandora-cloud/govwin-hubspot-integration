@@ -160,6 +160,43 @@ class TestAuthRetry:
         assert result == {"results": []}
 
 
+class TestRetryBehavior:
+    def test_retries_on_503_then_succeeds(self, hs_client: HubSpotClient, hubspot_mock):
+        """Transient 503 from HubSpot should be retried by tenacity and ultimately succeed."""
+        call_count = 0
+
+        def side_effect(request):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return httpx.Response(503, json={"message": "Service Unavailable"})
+            return httpx.Response(200, json={"results": []})
+
+        hubspot_mock.get("/crm/v3/pipelines/deals").mock(side_effect=side_effect)
+
+        result = hs_client._get("crm/v3/pipelines/deals")
+        assert result == {"results": []}
+        assert call_count == 2
+
+    def test_does_not_retry_on_400(self, hs_client: HubSpotClient, hubspot_mock):
+        """400 Bad Request is a deterministic client error and must not be retried."""
+        from src.hubspot.client import HubSpotAPIError
+
+        call_count = 0
+
+        def side_effect(request):
+            nonlocal call_count
+            call_count += 1
+            return httpx.Response(400, json={"message": "Bad input"})
+
+        hubspot_mock.get("/crm/v3/pipelines/deals").mock(side_effect=side_effect)
+
+        with pytest.raises(HubSpotAPIError) as exc:
+            hs_client._get("crm/v3/pipelines/deals")
+        assert exc.value.status_code == 400
+        assert call_count == 1
+
+
 class TestBatchCreateAssociations:
     def test_batch_create_associations(self, hs_client: HubSpotClient, hubspot_mock):
         """Mock batch association endpoint."""

@@ -1,42 +1,114 @@
 # Testing Guide
 
-## Local Testing
+This guide covers everything you need to run the full test suite end to end before deploying or releasing the integration. The suite has four layers:
 
-### Unit Tests
+1. **Hermetic unit tests** (no network, no AWS, no GovWin/HubSpot)
+2. **LocalStack integration tests** (real boto3 calls against a containerized AWS)
+3. **Pre-deployment validation** (real GovWin/HubSpot/AWS credentials, read-only)
+4. **End-to-end production smoke tests** (run by a human against your live deployment)
 
-92 unit tests covering all modules. Run with:
+## 1. Unit Tests (no setup beyond Python)
+
+128 unit tests covering models, mappers, dedup, rate limiters, both API clients, the orchestrator, and every Lambda handler. They mock all I/O and run in seconds.
 
 ```bash
-make test
+make install-dev    # one-time
+make test           # runs pytest tests/unit -v
 ```
 
-### Pre-deployment Validation
+You should see `128 passed`. Every supported opportunity type (OPP, BID, TNS, FBO, OPN, TOP) has a parse-and-map regression test, and the production data quirks (`smartTag` as string, `contract.company` as list, `contact_id` as int, etc.) are pinned by `tests/unit/test_models.py`.
 
-Test API credentials and connectivity before deploying:
+## 2. Static Checks
+
+Run these before opening a PR or deploying.
+
+```bash
+make lint           # ruff
+make typecheck      # mypy with the pydantic plugin enabled
+```
+
+Both should report no issues. CI runs them automatically on every push.
+
+## 3. LocalStack Integration Tests
+
+These tests exercise the DynamoDB state manager and Secrets Manager paths against a real boto3 client talking to LocalStack. They auto-skip when `AWS_ENDPOINT_URL` is not set so `make test` stays hermetic.
+
+```bash
+make local-up       # docker compose up localstack + create tables/secrets
+make local-test     # docker compose run test-runner pytest tests/
+make local-down     # tear down
+```
+
+Behind the scenes `make local-test` runs `pytest tests/` inside a container with `AWS_ENDPOINT_URL=http://localstack:4566`. You'll see the 6 integration tests in `tests/integration/test_localstack_state.py` go from skipped to passing.
+
+If you want to run them ad-hoc against an already-running LocalStack:
+
+```bash
+export AWS_ENDPOINT_URL=http://localhost:4566
+export AWS_DEFAULT_REGION=us-east-1
+export SYNC_STATE_TABLE=govwin-hubspot-dev-sync-state
+export ENTITY_MAPPINGS_TABLE=govwin-hubspot-dev-entity-mappings
+export GOVWIN_SECRET_NAME=govwin-hubspot-dev/govwin
+export HUBSPOT_SECRET_NAME=govwin-hubspot-dev/hubspot
+export GOVWIN_TOKENS_SECRET_NAME=govwin-hubspot-dev/govwin-tokens
+pytest tests/integration -v
+```
+
+## 4. Pre-deployment Validation (real credentials)
+
+Before deploying to AWS, validate that your credentials actually work and the APIs are reachable. These scripts make real but read-only calls.
 
 ```bash
 cp .env.example .env
-# Fill in your credentials
+# Fill in GovWin client id/secret/username/password and HubSpot token
 make validate
 ```
 
-### Dry Run
+`make validate` runs `scripts/validate.py`, which:
+- exchanges your GovWin credentials for an OAuth token,
+- calls `/opportunities?max=1` to confirm the WSAPI works,
+- calls HubSpot `/crm/v3/objects/deals?limit=1` to confirm the token works,
+- confirms the configured AWS profile can reach Secrets Manager.
 
-Preview what would sync without writing to HubSpot:
-
-```bash
-make dry-run
-```
-
-### LocalStack (Docker)
-
-Run tests against real AWS services locally:
+To exercise only one side (handy when you only have one set of credentials at hand):
 
 ```bash
-make local-up       # Start LocalStack
-make local-test     # Run tests against it
-make local-down     # Clean up
+python scripts/validate.py --skip-hubspot
+python scripts/validate.py --skip-govwin
+python scripts/validate.py --skip-govwin --skip-hubspot   # AWS-only
 ```
+
+## 5. Dry Run
+
+Preview the next sync against real GovWin data without writing anything to HubSpot. The script discovers up to N opportunities, fetches their full details, runs them through the mapper, and prints the resulting payload.
+
+```bash
+make dry-run                          # default --limit 5
+python scripts/dry_run.py --limit 25  # custom limit
+```
+
+Use this after `make validate` and before the first real sync. If a particular opportunity type or field shape would crash the mapper, this is where you'll see it.
+
+## 6. End-to-End Production Smoke Tests
+
+Once deployed, the integration owner (typically your BD lead) should run a one-time smoke pass to confirm the full pipeline works in production. These tests cannot be automated because they require interactive marking/unmarking inside GovWin IQ and visual inspection inside HubSpot.
+
+The recommended matrix:
+
+| # | Scenario | What to do | What to verify |
+|---|---|---|---|
+| 1 | OPP type | Mark a tracked-opportunity (`OPP*`) for Web Services Download. Trigger sync. | Deal appears in the Government pipeline with NAICS, agency, contacts populated. |
+| 2 | BID type | Mark a `BID*` opportunity. Trigger sync. | Deal appears, no validation errors in CloudWatch. |
+| 3 | TNS type | Mark a `TNS*` opportunity. Trigger sync. | Deal appears, deal stage maps correctly from GovWin status. |
+| 4 | FBO type | Mark a `FBO*` opportunity. Trigger sync. | Deal appears, `govwin_source_url` populated with sam.gov link. |
+| 5 | OPN type | Mark an `OPN*` (APFS) opportunity. Trigger sync. | Deal appears, `govwin_smart_tags` populated even when GovWin returns it as a plain string. |
+| 6 | TOP type | Mark a `TOP*` (task-order) opportunity. Trigger sync. | Deal appears with task-order specific fields. |
+| 7 | Update flow | Edit a previously-synced opp's status in GovWin. Trigger sync. | Same HubSpot deal id is updated; **no duplicate** is created. |
+| 8 | Unmark behavior | Unmark a previously-synced opp. Trigger sync. | The HubSpot deal is **retained** untouched (intentional behavior so manual edits survive). |
+| 9 | Re-mark | Re-mark the unmarked opp from #8. Trigger sync. | Same deal is updated, no duplicate appears. |
+| 10 | DLQ replay | Temporarily revoke a credential, trigger sync, restore. | Failure lands in `*-dlq` SQS queue with sanitized JSON; an alert is sent via SNS; restoring credentials clears the next run. |
+
+Production test results from the original Pandora Cloud rollout are recorded in the table below as a reference for what "passing" looks like.
 
 ---
 
