@@ -19,7 +19,7 @@ The sync runs incrementally - only opportunities that changed since the last run
 ### For your BD team
 
 1. **Find an opportunity in GovWin IQ** and click "Add to Web Services Download" on the opportunity detail page.
-2. **The integration syncs it to HubSpot** on the next scheduled run (default: every 4 hours). A deal appears in the GovWin Pipeline with the opportunity details, agency, and contacts already filled in.
+2. **The integration syncs it to HubSpot** on the next scheduled run (default: every 4 hours). A deal appears in your **Government** pipeline with the opportunity details, agency, and contacts already filled in.
 3. **Review the deal in HubSpot**, fill in 3 fields for ACE, and submit to AWS Partner Central via the SaaSify connector.
 
 ### Under the hood
@@ -129,7 +129,7 @@ terraform plan    # Review what will be created
 terraform apply   # Deploy (type "yes" when prompted)
 ```
 
-Terraform creates all AWS resources, stores credentials in Secrets Manager, sets up HubSpot custom properties and the GovWin Pipeline, and schedules the first sync.
+Terraform creates all AWS resources, stores credentials in Secrets Manager, creates the HubSpot custom properties, and schedules the first sync. The HubSpot pipeline named **"Government"** must already exist in your account (see [Deployment Guide](docs/deployment-guide.md#step-1-prepare-hubspot)). Stage labels must match those in `src/hubspot/properties.py` (`GOVWIN_STATUS_TO_STAGE`).
 
 ### 6. Mark opportunities and verify
 
@@ -145,7 +145,7 @@ aws stepfunctions start-execution \
   --name "manual-first-sync-$(date +%s)"
 ```
 
-Verify in HubSpot under **Settings > Objects > Deals > Pipelines** that the "GovWin Pipeline" exists, and check the deals list for your synced opportunities.
+Verify in HubSpot under **Settings > Objects > Deals > Pipelines** that the "Government" pipeline shows the synced deals.
 
 ## Configuration
 
@@ -198,7 +198,7 @@ This is not recommended for production - GovWin contains hundreds of thousands o
 
 ## Data Mapping
 
-The integration creates 30 custom deal properties, 5 company properties, and 3 contact properties in HubSpot, all under the `govwin_` prefix. It also creates a "GovWin Pipeline" with stages mapped from GovWin statuses.
+The integration creates 30 custom deal properties, 5 company properties, and 3 contact properties in HubSpot, all under the `govwin_` prefix. Deals are placed in your existing **"Government"** pipeline, with GovWin statuses mapped to its stage labels.
 
 ### Key field mappings
 
@@ -219,14 +219,17 @@ The integration creates 30 custom deal properties, 5 company properties, and 3 c
 
 ### Pipeline stages
 
-| GovWin Status | HubSpot Stage | Probability |
-|---|---|---|
-| Pre-RFP | Pre-RFP | 10% |
-| RFP Released | RFP Released | 20% |
-| Proposal Submitted | Proposal Submitted | 40% |
-| Under Evaluation | Under Evaluation | 50% |
-| Awarded | Awarded (Won) | 100% |
-| Cancelled | Cancelled (Lost) | 0% |
+GovWin statuses map to stage labels in your existing **"Government"** pipeline. The labels below must exist in that pipeline; adjust `GOVWIN_STATUS_TO_STAGE` in `src/hubspot/properties.py` if yours differ.
+
+| GovWin Status | HubSpot Stage Label |
+|---|---|
+| Pre-RFP, Pre-Solicitation | Opportunity Identified |
+| RFP Released, RFP, Solicitation | Reviewing Requirements |
+| Proposal Submitted | Preparing Response |
+| Under Evaluation, Evaluation | Submitted |
+| Awarded, Award | Closed Won |
+| Cancelled, Closed, Lost | Closed Lost |
+| Declined | Declined |
 
 ### Associations
 
@@ -256,6 +259,8 @@ make local-up       # Start LocalStack with DynamoDB, Secrets Manager, SNS, SQS
 make local-test     # Run integration tests against LocalStack
 make local-down     # Stop and clean up
 ```
+
+The integration suite (`tests/integration/`) exercises the DynamoDB state manager and Secrets Manager paths against the live LocalStack endpoint. It auto-skips when `AWS_ENDPOINT_URL` is not set, so `make test` and CI stay hermetic.
 
 ## Project Structure
 
@@ -296,8 +301,8 @@ terraform/
     secrets/                 # Secrets Manager secrets
     monitoring/              # SNS, SQS, CloudWatch
 tests/
-  unit/                      # 92 unit tests (17 test files)
-  integration/               # Integration tests (LocalStack)
+  unit/                      # 92 unit tests (17 test files, hermetic)
+  integration/               # LocalStack integration tests (skipped without AWS_ENDPOINT_URL)
   conftest.py                # Shared pytest fixtures
 scripts/
   validate.py                # Pre-deployment credential validation
