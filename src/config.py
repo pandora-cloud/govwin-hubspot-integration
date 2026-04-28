@@ -12,7 +12,12 @@ class GovWinConfig:
     rate_limit_per_hour: int = 4000
     max_page_size: int = 100
     token_expiry_buffer_seconds: int = 300  # Refresh 5 min before expiry
-    opp_types: str = "ALL"  # OPP, TNS, BID, FBO, OPN, TOP, ALL
+    # GovWin's WSAPI accepts these oppType values:
+    #   OPP, TNS, BID, FBO, OPN, TOP, FED_CONTRACT_AWARD, SL_CONTRACT_AWARD, ALL.
+    # The ``lead`` type also exists in the data (mostly SLED Forecast Pre-RFP)
+    # but is not a filterable oppType — leads share the BID global-ID prefix
+    # and come through any time ``oppType=BID`` or ``oppType=ALL`` is used.
+    opp_types: str = "ALL"
     market: str = ""  # Federal, SLED, or empty for both
     saved_search_id: str = ""  # GovWin saved search ID (filter #1)
     bookmarked_only: bool = False  # Only sync bookmarked opps (filter #2)

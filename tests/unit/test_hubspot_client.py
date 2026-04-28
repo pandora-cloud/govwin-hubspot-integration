@@ -120,6 +120,11 @@ class TestGetStageId:
                                 {"id": "stage-opid", "label": "Opportunity Identified"},
                                 {"id": "stage-review", "label": "Reviewing Requirements"},
                                 {"id": "stage-prep", "label": "Preparing Response"},
+                                {"id": "stage-submit", "label": "Submitted"},
+                                {"id": "stage-won", "label": "Closed Won"},
+                                {"id": "stage-lost", "label": "Closed Lost"},
+                                {"id": "stage-decl", "label": "Declined"},
+                                {"id": "stage-other", "label": "Other"},
                             ],
                         }
                     ]
@@ -129,13 +134,51 @@ class TestGetStageId:
 
         hs_client.ensure_pipeline()
 
-        # Test mapping known GovWin status to Government pipeline stages
+        # Statuses originally mapped from the first rollout
         assert hs_client.get_stage_id("Pre-RFP") == "stage-opid"
         assert hs_client.get_stage_id("RFP Released") == "stage-review"
         assert hs_client.get_stage_id("Proposal Submitted") == "stage-prep"
 
-        # Unknown status returns None (no "Other" stage in existing pipeline)
-        assert hs_client.get_stage_id("UnknownStatus") is None
+        # Statuses observed in live federal+SLED data 2026-04-28 (regression
+        # for the dealstage=null bug they exposed)
+        assert hs_client.get_stage_id("Forecast Pre-RFP") == "stage-opid"
+        assert hs_client.get_stage_id("Umbrella Program") == "stage-opid"
+        assert hs_client.get_stage_id("Source Selection") == "stage-submit"
+        assert hs_client.get_stage_id("Post-RFP") == "stage-submit"
+        assert hs_client.get_stage_id("Partial Award") == "stage-won"
+        assert hs_client.get_stage_id("Deleted/Canceled") == "stage-lost"
+
+    def test_get_stage_id_unknown_status_falls_back(
+        self, hs_client: HubSpotClient, hubspot_mock, caplog
+    ):
+        """An unmapped GovWin status must fall back to the 'Other' stage label
+        and emit a WARN so the new value can be discovered and mapped."""
+        import logging
+
+        hubspot_mock.get("/crm/v3/pipelines/deals").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "results": [
+                        {
+                            "id": "pipe-001",
+                            "label": PIPELINE_NAME,
+                            "stages": [
+                                {"id": "stage-other", "label": "Other"},
+                                {"id": "stage-opid", "label": "Opportunity Identified"},
+                            ],
+                        }
+                    ]
+                },
+            )
+        )
+
+        hs_client.ensure_pipeline()
+
+        with caplog.at_level(logging.WARNING):
+            result = hs_client.get_stage_id("Brand New Status From Deltek")
+        assert result == "stage-other"
+        assert any("Unmapped GovWin status" in r.message for r in caplog.records)
 
 
 class TestAuthRetry:

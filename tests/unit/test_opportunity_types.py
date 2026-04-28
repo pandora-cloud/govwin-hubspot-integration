@@ -66,6 +66,18 @@ TYPE_FIXTURES: dict[str, dict] = {
         "status": "RFP Released",
         "updateDate": "2026-04-01T00:00:00Z",
     },
+    # `lead` is an undocumented opp type observed in live SLED data
+    # (mostly Forecast Pre-RFP). It shares the BID global-ID prefix and is
+    # not filterable via the oppType parameter — it comes through with
+    # ``oppType=BID`` or ``oppType=ALL``. This regression confirms the
+    # parser and mapper handle it cleanly.
+    "LEAD": {
+        "id": "BID13141848",
+        "type": "lead",
+        "title": "Sewer Rehab/Repl Program",
+        "status": "Forecast Pre-RFP",
+        "updateDate": "2026-04-01T00:00:00Z",
+    },
 }
 
 

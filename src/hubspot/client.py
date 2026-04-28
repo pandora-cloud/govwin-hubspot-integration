@@ -22,6 +22,7 @@ from src.hubspot.properties import (
     COMPANY_PROPERTIES,
     CONTACT_PROPERTIES,
     DEAL_PROPERTIES,
+    DEFAULT_STAGE_LABEL,
     GOVWIN_STATUS_TO_STAGE,
     PIPELINE_NAME,
     PROPERTY_GROUP,
@@ -241,8 +242,21 @@ class HubSpotClient:
             self._stage_label_to_id[stage["label"]] = stage["id"]
 
     def get_stage_id(self, govwin_status: str) -> str | None:
-        """Map a GovWin status to a HubSpot pipeline stage ID."""
-        stage_label = GOVWIN_STATUS_TO_STAGE.get(govwin_status, "Other")
+        """Map a GovWin status to a HubSpot pipeline stage ID.
+
+        Unmapped statuses fall back to ``DEFAULT_STAGE_LABEL`` so the deal still
+        lands in a stage. A warning is logged so the unmapped value can be
+        added to ``GOVWIN_STATUS_TO_STAGE``.
+        """
+        if govwin_status in GOVWIN_STATUS_TO_STAGE:
+            stage_label = GOVWIN_STATUS_TO_STAGE[govwin_status]
+        else:
+            logger.warning(
+                "Unmapped GovWin status %r — falling back to %r. "
+                "Add it to GOVWIN_STATUS_TO_STAGE in src/hubspot/properties.py.",
+                govwin_status, DEFAULT_STAGE_LABEL,
+            )
+            stage_label = DEFAULT_STAGE_LABEL
         return self._stage_label_to_id.get(stage_label)
 
     # -----------------------------------------------------------------------
