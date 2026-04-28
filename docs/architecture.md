@@ -97,6 +97,8 @@ Maps GovWin entities to HubSpot objects.
 | `hubspot_id` | String | Corresponding HubSpot object ID |
 | `last_synced` | String | ISO-8601 datetime of last sync |
 
+Both tables use a 180-day TTL on per-opportunity and entity-mapping records (the `SYNC_CURSOR` row has none). DynamoDB encryption-at-rest with AWS-managed keys is enabled by default.
+
 ## Rate Limiting
 
 ### GovWin (4,000 calls/hour)
