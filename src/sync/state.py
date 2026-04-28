@@ -15,6 +15,11 @@ from src.config import AppConfig
 logger = logging.getLogger(__name__)
 
 
+def _as_str(value: Any) -> str | None:
+    """Narrow a DynamoDB attribute (Any) to ``str | None`` for the type checker."""
+    return value if isinstance(value, str) else None
+
+
 class SyncStateManager:
     """Manages sync state in DynamoDB."""
 
@@ -35,7 +40,7 @@ class SyncStateManager:
                 Key={"pk": "SYNC_CURSOR", "sk": "METADATA"}
             )
             item = response.get("Item")
-            return item.get("last_sync_timestamp") if item else None
+            return _as_str(item.get("last_sync_timestamp")) if item else None
         except ClientError:
             logger.warning("Failed to read sync cursor from DynamoDB")
             return None
@@ -65,7 +70,7 @@ class SyncStateManager:
                 Key={"pk": f"OPP#{govwin_opp_id}", "sk": "METADATA"}
             )
             item = response.get("Item")
-            return item.get("govwin_update_date") if item else None
+            return _as_str(item.get("govwin_update_date")) if item else None
         except ClientError:
             return None
 
@@ -95,7 +100,7 @@ class SyncStateManager:
                 Key={"pk": f"OPP#{govwin_opp_id}", "sk": "METADATA"}
             )
             item = response.get("Item")
-            return item.get("hubspot_deal_id") if item else None
+            return _as_str(item.get("hubspot_deal_id")) if item else None
         except ClientError:
             return None
 
@@ -108,7 +113,7 @@ class SyncStateManager:
         # DynamoDB batch_get_item supports max 100 keys per request
         for i in range(0, len(govwin_opp_ids), 100):
             batch = govwin_opp_ids[i : i + 100]
-            request_items: dict = {
+            request_items: dict[str, Any] = {
                 self._config.aws.sync_state_table: {
                     "Keys": [{"pk": f"OPP#{opp_id}", "sk": "METADATA"} for opp_id in batch]
                 }
@@ -123,15 +128,18 @@ class SyncStateManager:
                         self._config.aws.sync_state_table, []
                     )
                     for item in items:
-                        opp_id = item["pk"].replace("OPP#", "")
-                        if "govwin_update_date" in item:
-                            result[opp_id] = item["govwin_update_date"]
+                        pk_value = item["pk"]
+                        opp_id = pk_value.replace("OPP#", "") if isinstance(pk_value, str) else None
+                        update_date = _as_str(item.get("govwin_update_date"))
+                        if opp_id and update_date:
+                            result[opp_id] = update_date
 
                     # Retry any unprocessed keys
                     request_items = response.get("UnprocessedKeys", {})
                     if request_items:
                         table = self._config.aws.sync_state_table
-                        unprocessed = request_items.get(table, {}).get("Keys", [])
+                        table_entry: Any = request_items.get(table, {})
+                        unprocessed = table_entry.get("Keys", []) if table_entry else []
                         logger.warning("Retrying %d unprocessed keys", len(unprocessed))
             except ClientError:
                 logger.warning("Failed to batch read opp update dates")
@@ -154,7 +162,7 @@ class SyncStateManager:
                 }
             )
             item = response.get("Item")
-            return item.get("hubspot_id") if item else None
+            return _as_str(item.get("hubspot_id")) if item else None
         except ClientError:
             return None
 

@@ -84,7 +84,7 @@ class HubSpotClient:
             )
             data = json.loads(response["SecretString"])
             self._token = data["private_app_token"]
-            return self._token  # type: ignore[return-value]
+            return self._token
         except ClientError as e:
             raise HubSpotAPIError(f"Failed to load HubSpot token: {e}") from e
 

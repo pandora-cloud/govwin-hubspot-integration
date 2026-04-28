@@ -6,3 +6,4 @@ respx>=0.21
 ruff>=0.4
 mypy>=1.10
 boto3-stubs[dynamodb,secretsmanager]
+types-python-dateutil>=2.9
