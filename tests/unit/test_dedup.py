@@ -76,3 +76,23 @@ def test_batch_single():
     batches = batch_opportunities(opps, batch_size=50)
     assert len(batches) == 1
     assert len(batches[0]) == 1
+
+
+def test_filter_handles_timezone_offsets(state_manager: SyncStateManager):
+    """Production fix: stored UTC vs incoming -05:00 offset must compare correctly."""
+    state_manager.set_opp_state("OPP001", "2025-03-09T07:30:00+00:00")
+
+    # Incoming has an earlier UTC equivalent (06:30 UTC) — should be unchanged
+    earlier = [_make_opp("OPP001", "2025-03-09T01:30:00-05:00")]
+    assert filter_changed_opportunities(earlier, state_manager) == []
+
+    # Incoming has a later UTC equivalent (08:30 UTC) — should be flagged updated
+    later = [_make_opp("OPP001", "2025-03-09T03:30:00-05:00")]
+    assert len(filter_changed_opportunities(later, state_manager)) == 1
+
+
+def test_filter_handles_unparseable_date(state_manager: SyncStateManager):
+    """A bad incoming date must not crash; with no stored date, it is treated as new."""
+    opps = [_make_opp("OPP001", "not-a-real-date")]
+    changed = filter_changed_opportunities(opps, state_manager)
+    assert len(changed) == 1
