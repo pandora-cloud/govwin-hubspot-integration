@@ -364,19 +364,48 @@ PIPELINE_NAME = "Government"
 
 # Map GovWin statuses to stage labels in the existing pipeline.
 # These must match the stage labels in your HubSpot "Government" pipeline.
+#
+# The vocabulary below was confirmed against 1,000 live federal+SLED opps on
+# 2026-04-28; Deltek's WSAPI docs (Appendix C) describe `status` as 100-char
+# free text rather than a published enum, so this map combines the actually-
+# observed values with the legacy values our earlier rollouts saw. New statuses
+# fall through to ``DEFAULT_STAGE_LABEL`` so the deal still lands in a stage
+# instead of being created with ``dealstage = null``.
 GOVWIN_STATUS_TO_STAGE: dict[str, str] = {
+    # Identified / forecast (pre-solicitation)
     "Pre-RFP": "Opportunity Identified",
     "Pre-Solicitation": "Opportunity Identified",
+    "Forecast Pre-RFP": "Opportunity Identified",
+    "Umbrella Program": "Opportunity Identified",
+    # Reviewing requirements (solicitation released, BD evaluating)
     "RFP Released": "Reviewing Requirements",
     "RFP": "Reviewing Requirements",
     "Solicitation": "Reviewing Requirements",
+    # Preparing response (proposal in flight)
     "Proposal Submitted": "Preparing Response",
+    # Submitted (in evaluation, source selection)
     "Under Evaluation": "Submitted",
     "Evaluation": "Submitted",
+    "Source Selection": "Submitted",
+    "Post-RFP": "Submitted",
+    # Closed won
     "Awarded": "Closed Won",
     "Award": "Closed Won",
+    "Partial Award": "Closed Won",
+    # Closed lost
     "Cancelled": "Closed Lost",
+    "Canceled": "Closed Lost",
     "Closed": "Closed Lost",
     "Lost": "Closed Lost",
+    "Deleted/Canceled": "Closed Lost",
+    "Expired/Archived": "Closed Lost",
+    # Other paths
     "Declined": "Declined",
+    "Other": "Other",
 }
+
+# Fallback stage for any GovWin status not in the map above. Lands the deal in
+# the catch-all "Other" stage instead of creating it with ``dealstage = null``.
+# A WARN log fires whenever this fallback is hit so unmapped statuses are easy
+# to find in CloudWatch and add to GOVWIN_STATUS_TO_STAGE.
+DEFAULT_STAGE_LABEL = "Other"

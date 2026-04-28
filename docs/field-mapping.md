@@ -96,14 +96,14 @@ The integration uses an existing HubSpot pipeline named **"Government"** rather 
 
 | GovWin Status | HubSpot Stage Label |
 |---|---|
-| Pre-RFP, Pre-Solicitation | Opportunity Identified |
+| Pre-RFP, Pre-Solicitation, Forecast Pre-RFP, Umbrella Program | Opportunity Identified |
 | RFP Released, RFP, Solicitation | Reviewing Requirements |
 | Proposal Submitted | Preparing Response |
-| Under Evaluation, Evaluation | Submitted |
-| Awarded, Award | Closed Won |
-| Cancelled, Closed, Lost | Closed Lost |
+| Under Evaluation, Evaluation, Source Selection, Post-RFP | Submitted |
+| Awarded, Award, Partial Award | Closed Won |
+| Cancelled, Canceled, Closed, Lost, Deleted/Canceled, Expired/Archived | Closed Lost |
 | Declined | Declined |
-| (any other) | Other |
+| Other, (any unmapped value) | Other (with a CloudWatch WARN so the new value can be added to the map) |
 
 ## GovWin GovEntities -> HubSpot Companies
 
