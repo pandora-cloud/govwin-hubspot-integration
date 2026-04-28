@@ -22,6 +22,7 @@ dev = [
     "ruff>=0.4",
     "mypy>=1.10",
     "boto3-stubs[dynamodb,secretsmanager]",
+    "types-python-dateutil>=2.9",
 ]
 
 [build-system]
@@ -41,4 +42,17 @@ asyncio_mode = "auto"
 
 [tool.mypy]
 python_version = "3.12"
-strict = true
+plugins = ["pydantic.mypy"]
+warn_unused_configs = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+no_implicit_optional = true
+check_untyped_defs = true
+
+[[tool.mypy.overrides]]
+module = "src.lambdas.*"
+disallow_untyped_defs = false
+
+[tool.pydantic-mypy]
+init_typed = true
+warn_required_dynamic_aliases = true
