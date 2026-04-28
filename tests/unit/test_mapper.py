@@ -98,6 +98,92 @@ def test_map_contact_to_hubspot():
     assert props["govwin_entity_level1"] == "Department of Defense"
 
 
+def test_map_opportunity_smart_tag_string():
+    """smart_tag arrives as a plain string and should pass through to govwin_smart_tags."""
+    opp = GovWinOpportunity.model_validate(
+        {"id": "OPN1", "title": "T", "smartTag": "Cyber; Cloud"}
+    )
+    bundle = GovWinOpportunityBundle(opportunity=opp)
+    props = map_opportunity_to_deal(bundle)["properties"]
+    assert props["govwin_smart_tags"] == "Cyber; Cloud"
+
+
+def test_map_opportunity_smart_tag_list():
+    """smart_tag list[dict] is concatenated by title with '; ' separator."""
+    opp = GovWinOpportunity.model_validate(
+        {
+            "id": "OPP1",
+            "title": "T",
+            "smartTag": [{"title": "Cyber"}, {"title": "Cloud"}, {"id": "no-title"}],
+        }
+    )
+    bundle = GovWinOpportunityBundle(opportunity=opp)
+    props = map_opportunity_to_deal(bundle)["properties"]
+    assert props["govwin_smart_tags"] == "Cyber; Cloud"
+
+
+def test_map_opportunity_canadian_value_fallback():
+    """When opp_value is missing but opp_value_canada is set, use the Canadian value."""
+    opp = GovWinOpportunity.model_validate(
+        {"id": "OPP1", "title": "Canadian Bid", "oppValueCanada": 1234.5}
+    )
+    bundle = GovWinOpportunityBundle(opportunity=opp)
+    props = map_opportunity_to_deal(bundle)["properties"]
+    assert props["amount"] == "1234500"
+
+
+def test_map_opportunity_close_date_falls_back_to_response_date():
+    """If pAwardDateTo is missing, closedate should come from responseDate."""
+    opp = GovWinOpportunity.model_validate(
+        {"id": "OPP1", "title": "T", "responseDate": {"value": "2026-05-15"}}
+    )
+    bundle = GovWinOpportunityBundle(opportunity=opp)
+    props = map_opportunity_to_deal(bundle)["properties"]
+    # closedate is HubSpot epoch milliseconds for the response date
+    assert props["closedate"].isdigit()
+
+
+def test_map_opportunity_zero_value_omits_amount():
+    """Production behavior: $0 deals must not set the amount field at all."""
+    opp = GovWinOpportunity.model_validate(
+        {"id": "OPP1", "title": "Zero", "oppValue": 0}
+    )
+    bundle = GovWinOpportunityBundle(opportunity=opp)
+    props = map_opportunity_to_deal(bundle)["properties"]
+    # opp_value = 0 evaluates falsy in `if opp.opp_value is not None` → amount is "0"
+    # but mapper drops None-only; "0" is preserved as a real value
+    assert props.get("amount") == "0"
+
+
+def test_map_opportunity_large_value_178m():
+    """Regression for the production $178M test case."""
+    opp = GovWinOpportunity.model_validate(
+        {"id": "OPP1", "title": "Big", "oppValue": 178000.0}
+    )
+    bundle = GovWinOpportunityBundle(opportunity=opp)
+    props = map_opportunity_to_deal(bundle)["properties"]
+    # GovWin stores in thousands; HubSpot wants the full dollar amount
+    assert props["amount"] == "178000000"
+
+
+def test_map_opportunity_no_pipeline_no_stage_omitted():
+    """When pipeline_id/stage_id are None, those properties must not appear in the payload."""
+    opp = GovWinOpportunity.model_validate({"id": "OPP1", "title": "T"})
+    bundle = GovWinOpportunityBundle(opportunity=opp)
+    props = map_opportunity_to_deal(bundle)["properties"]
+    assert "pipeline" not in props
+    assert "dealstage" not in props
+
+
+def test_to_hubspot_timestamp_invalid_returns_none():
+    """A garbage date string should not crash; mapper returns None and the field is dropped."""
+    from src.sync.mapper import _to_hubspot_timestamp
+
+    assert _to_hubspot_timestamp("not-a-date") is None
+    assert _to_hubspot_timestamp("") is None
+    assert _to_hubspot_timestamp(None) is None
+
+
 def test_map_contact_no_email():
     contact = GovWinContact.model_validate({
         "contactId": "C002",

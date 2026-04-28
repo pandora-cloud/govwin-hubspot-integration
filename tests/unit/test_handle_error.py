@@ -114,3 +114,83 @@ class TestHandlerSQS:
         assert "Messages" in messages
         body = json.loads(messages["Messages"][0]["Body"])
         assert body["error"] == "SyncFailure"
+
+
+class TestDLQMessageContents:
+    def test_dlq_message_is_valid_json_with_sanitized_event(
+        self, app_config, mock_aws_env, monkeypatch
+    ):
+        """DLQ messages must be JSON, parseable by an operator, and free of secrets.
+
+        Operators replay DLQ messages by reading them with ``aws sqs receive-message`` and
+        re-feeding the original input to a Step Function. If the message body is not valid
+        JSON or contains stripped-out garbage, replay breaks; if it contains secrets,
+        whoever has read access to the queue can see them.
+        """
+        monkeypatch.setenv("AWS_REGION", "us-east-1")
+        monkeypatch.setenv("SYNC_STATE_TABLE", "test-sync-state")
+        monkeypatch.setenv("ENTITY_MAPPINGS_TABLE", "test-entity-mappings")
+        monkeypatch.setenv("GOVWIN_SECRET_NAME", "test/govwin")
+        monkeypatch.setenv("HUBSPOT_SECRET_NAME", "test/hubspot")
+        monkeypatch.setenv("GOVWIN_TOKENS_SECRET_NAME", "test/govwin-tokens")
+        monkeypatch.setenv("SNS_TOPIC_ARN", "")
+
+        sqs = boto3.client("sqs", region_name="us-east-1")
+        queue = sqs.create_queue(QueueName="test-dlq-replay")
+        queue_url = queue["QueueUrl"]
+        monkeypatch.setenv("DLQ_URL", queue_url)
+
+        from src.lambdas.handle_error import handler
+
+        event = {
+            "error": "GovWinAuthError",
+            "cause": "401 from /oauth/token",
+            "status": "failed",
+            "deals_synced": 0,
+            "opportunities_count": 8,
+            "access_token": "must-not-leak",
+            "client_secret": "must-not-leak",
+            "private_app_token": "must-not-leak",
+        }
+
+        handler(event, None)
+
+        # Receive the DLQ message and parse it
+        messages = sqs.receive_message(QueueUrl=queue_url, MaxNumberOfMessages=1)
+        assert "Messages" in messages
+        body_text = messages["Messages"][0]["Body"]
+
+        # Must be valid JSON (operators rely on this for replay tooling)
+        body = json.loads(body_text)
+
+        # Replay-relevant fields preserved
+        assert body["error"] == "GovWinAuthError"
+        assert body["status"] == "failed"
+        assert body["deals_synced"] == 0
+        assert body["opportunities_count"] == 8
+
+        # Sensitive fields stripped (substring match against the whole serialized body)
+        assert "must-not-leak" not in body_text
+        assert "access_token" not in body
+        assert "client_secret" not in body
+        assert "private_app_token" not in body
+
+
+class TestHandlerWithoutDestinations:
+    def test_handler_skips_when_sns_and_dlq_unconfigured(
+        self, app_config, mock_aws_env, monkeypatch
+    ):
+        """When neither SNS nor DLQ is configured, handler must still complete cleanly."""
+        monkeypatch.setenv("AWS_REGION", "us-east-1")
+        monkeypatch.setenv("SYNC_STATE_TABLE", "test-sync-state")
+        monkeypatch.setenv("ENTITY_MAPPINGS_TABLE", "test-entity-mappings")
+        monkeypatch.setenv("GOVWIN_SECRET_NAME", "test/govwin")
+        monkeypatch.setenv("HUBSPOT_SECRET_NAME", "test/hubspot")
+        monkeypatch.setenv("GOVWIN_TOKENS_SECRET_NAME", "test/govwin-tokens")
+        monkeypatch.setenv("SNS_TOPIC_ARN", "")
+        monkeypatch.setenv("DLQ_URL", "")
+
+        from src.lambdas.handle_error import handler
+
+        result = handler({"error": "Boom", "cause": "kaboom"}, None)
+        assert result == {"status": "error_handled", "error": "Boom"}
