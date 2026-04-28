@@ -43,13 +43,14 @@ class SyncOrchestrator:
 
         Returns sync statistics.
         """
-        stats = {
+        stats: dict[str, Any] = {
             "deals_synced": 0,
             "companies_synced": 0,
             "contacts_synced": 0,
             "associations_created": 0,
             "errors": [],
         }
+        errors: list[str] = stats["errors"]
 
         # 1. Collect and upsert all unique companies (gov entities)
         company_payloads: dict[str, dict[str, Any]] = {}
@@ -78,7 +79,7 @@ class SyncOrchestrator:
                 if mappings:
                     self._state.batch_set_entity_mappings(mappings)
             except HubSpotAPIError as e:
-                stats["errors"].append(f"Company upsert failed: {e}")
+                errors.append(f"Company upsert failed: {e}")
                 logger.exception("Failed to upsert companies")
 
         # 2. Collect and upsert all unique contacts
@@ -86,7 +87,9 @@ class SyncOrchestrator:
         seen_contacts: set[str] = set()
         for bundle in bundles:
             for contact in bundle.contacts:
-                key = contact.email or contact.contact_id or ""
+                key = contact.email or (
+                    str(contact.contact_id) if contact.contact_id is not None else ""
+                )
                 if key and key not in seen_contacts:
                     seen_contacts.add(key)
                     contact_payloads.append(map_contact_to_hubspot(contact))
@@ -107,7 +110,7 @@ class SyncOrchestrator:
                 if mappings:
                     self._state.batch_set_entity_mappings(mappings)
             except HubSpotAPIError as e:
-                stats["errors"].append(f"Contact upsert failed: {e}")
+                errors.append(f"Contact upsert failed: {e}")
                 logger.exception("Failed to upsert contacts")
 
         # 3. Upsert deals
@@ -130,7 +133,7 @@ class SyncOrchestrator:
                 deal_results = self._hubspot.batch_upsert_deals(deal_payloads)
                 stats["deals_synced"] = len(deal_results)
             except HubSpotAPIError as e:
-                stats["errors"].append(f"Deal upsert failed: {e}")
+                errors.append(f"Deal upsert failed: {e}")
                 logger.exception("Failed to upsert deals")
 
         # Detect skipped deals via set-difference (batch API doesn't guarantee order)
@@ -149,7 +152,7 @@ class SyncOrchestrator:
                     len(deal_results), len(bundles), skipped_ids,
                 )
                 for opp_id in skipped_ids:
-                    stats["errors"].append(f"Deal upsert skipped: {opp_id}")
+                    errors.append(f"Deal upsert skipped: {opp_id}")
 
         # 4. Create associations (batched)
         deal_company_assocs: list[tuple[str, str]] = []
@@ -171,11 +174,13 @@ class SyncOrchestrator:
 
             # Deal <-> Contacts (look up by contact_id, matching how mappings are stored)
             for contact in bundle.contacts:
-                key = str(contact.contact_id) if contact.contact_id else None
-                if key:
-                    contact_hs_id = self._state.get_entity_hubspot_id("CONTACT", key)
-                    if contact_hs_id:
-                        deal_contact_assocs.append((deal_hs_id, contact_hs_id))
+                if contact.contact_id is None:
+                    continue
+                contact_hs_id = self._state.get_entity_hubspot_id(
+                    "CONTACT", str(contact.contact_id)
+                )
+                if contact_hs_id:
+                    deal_contact_assocs.append((deal_hs_id, contact_hs_id))
 
         if deal_company_assocs:
             self._hubspot.batch_create_associations(

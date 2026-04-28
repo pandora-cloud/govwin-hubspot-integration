@@ -22,6 +22,24 @@ git clone https://github.com/your-org/govwin-hubspot-integration.git
 cd govwin-hubspot-integration
 ```
 
+## Step 1a: Prepare HubSpot
+
+Before deploying, the integration expects an existing pipeline named **"Government"** in HubSpot. The integration does not create a pipeline (HubSpot Professional accounts are limited to two custom pipelines, so creating one for every deployer is unsafe).
+
+1. Go to **Settings > Objects > Deals > Pipelines**.
+2. Either create a new pipeline named exactly `Government` or rename an existing one.
+3. Add stages with these labels (or the labels you prefer; if you change them, update `GOVWIN_STATUS_TO_STAGE` in `src/hubspot/properties.py` to match):
+   - Opportunity Identified
+   - Reviewing Requirements
+   - Preparing Response
+   - Submitted
+   - Closed Won
+   - Closed Lost
+   - Declined
+   - Other
+
+If you want a different pipeline name, set `PIPELINE_NAME` in `src/hubspot/properties.py` before building the Lambda layer.
+
 ## Step 2: Create HubSpot API Token
 
 HubSpot offers two methods for API authentication. Use **Service Keys** (recommended) or Private Apps (legacy).
@@ -102,9 +120,9 @@ Before deploying, you can test your credentials locally:
 cp .env.example .env
 # Edit .env with your GovWin credentials
 
-# Load environment and run validation
-source .env
-make validate --skip-hubspot
+# Run validation against GovWin only
+set -a && source .env && set +a
+python scripts/validate.py --skip-hubspot
 ```
 
 Or test manually with curl:
@@ -208,9 +226,9 @@ By default, only opportunities your BD team explicitly marks in GovWin IQ will s
 
 ### Check HubSpot Setup
 
-The `setup_hubspot` Lambda runs automatically during deployment. Verify in HubSpot:
+The `setup_hubspot` Lambda runs automatically during deployment and creates the custom properties (it does not create a pipeline). Verify in HubSpot:
 - Go to **Settings > Properties > Deal properties** -- you should see `govwin_*` properties
-- Go to **Settings > Objects > Deals > Pipelines** -- you should see "GovWin Pipeline"
+- Go to **Settings > Objects > Deals > Pipelines** -- the **"Government"** pipeline you prepared in Step 1a is where new deals will appear
 
 ### Trigger First Sync
 

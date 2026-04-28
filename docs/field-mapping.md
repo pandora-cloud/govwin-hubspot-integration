@@ -92,17 +92,18 @@ These properties support downstream submission to AWS Partner Central via the Sa
 
 ### Deal Pipeline Stages
 
-A custom pipeline "GovWin Pipeline" is created with these stages:
+The integration uses an existing HubSpot pipeline named **"Government"** rather than creating a new one (HubSpot Professional accounts are limited to two custom pipelines). The pipeline must exist before deployment, with the stage labels listed below. Update `PIPELINE_NAME` in `src/hubspot/properties.py` if your pipeline uses a different name, and update `GOVWIN_STATUS_TO_STAGE` if your stage labels differ.
 
-| GovWin Status | HubSpot Stage ID | Stage Label | Probability |
-|---|---|---|---|
-| Pre-RFP | `govwin_pre_rfp` | Pre-RFP | 10% |
-| RFP Released | `govwin_rfp_released` | RFP Released | 20% |
-| Proposal Submitted | `govwin_proposal_submitted` | Proposal Submitted | 40% |
-| Under Evaluation | `govwin_under_evaluation` | Under Evaluation | 50% |
-| Awarded | `closedwon` | Awarded (Won) | 100% |
-| Cancelled | `closedlost` | Cancelled (Lost) | 0% |
-| Other | `govwin_other` | Other | 20% |
+| GovWin Status | HubSpot Stage Label |
+|---|---|
+| Pre-RFP, Pre-Solicitation | Opportunity Identified |
+| RFP Released, RFP, Solicitation | Reviewing Requirements |
+| Proposal Submitted | Preparing Response |
+| Under Evaluation, Evaluation | Submitted |
+| Awarded, Award | Closed Won |
+| Cancelled, Closed, Lost | Closed Lost |
+| Declined | Declined |
+| (any other) | Other |
 
 ## GovWin GovEntities -> HubSpot Companies
 
@@ -113,7 +114,7 @@ A custom pipeline "GovWin Pipeline" is created with these stages:
 | `parentHierarchy[0].title` | `govwin_parent_agency` | string | Parent department |
 | `links.webHref` | `govwin_entity_url` | string | GovWin entity page |
 | `type` | `govwin_entity_type` | enumeration | federal, state_local |
-| -- | `industry` (built-in) | string | Set to "Government" |
+| -- | `industry` (built-in) | string | Set to `GOVERNMENT_ADMINISTRATION` (HubSpot enum) |
 
 ## GovWin Contacts -> HubSpot Contacts
 
