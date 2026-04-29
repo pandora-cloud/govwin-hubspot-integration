@@ -81,10 +81,18 @@ def _config_target_url(monkeypatch):
         "ACE_SUBMISSION_QUEUE_URL",
         "https://sqs.us-east-1.amazonaws.com/000000000000/test-ace-submit",
     )
+    monkeypatch.setenv(
+        "ACE_UPDATE_QUEUE_URL",
+        "https://sqs.us-east-1.amazonaws.com/000000000000/test-ace-update",
+    )
 
 
 def test_valid_signature_returns_200(mock_secrets, mock_sqs) -> None:
-    body = json.dumps([{"objectId": 1, "subscriptionType": "deal.propertyChange"}])
+    body = json.dumps([{
+        "objectId": 1,
+        "subscriptionType": "object.propertyChange",
+        "propertyName": "dealstage",
+    }])
     mock_sqs.send_message_batch.return_value = {
         "Successful": [{"Id": "0"}],
         "Failed": [],
@@ -92,6 +100,7 @@ def test_valid_signature_returns_200(mock_secrets, mock_sqs) -> None:
     headers = _signed_headers("POST", TARGET_URL, body.encode())
     response = receiver.handler(_api_event("POST", body, headers), context=None)
     assert response["statusCode"] == 200
+    # Routed to submit queue, not update.
     assert mock_sqs.send_message_batch.call_count == 1
 
 
@@ -139,7 +148,12 @@ def test_invalid_json_body_rejected(mock_secrets, mock_sqs) -> None:
 
 def test_multiple_events_use_batch_send(mock_secrets, mock_sqs) -> None:
     events = [
-        {"objectId": i, "subscriptionType": "deal.propertyChange"} for i in range(15)
+        {
+            "objectId": i,
+            "subscriptionType": "object.propertyChange",
+            "propertyName": "dealstage",
+        }
+        for i in range(15)
     ]
     body = json.dumps(events)
     mock_sqs.send_message_batch.side_effect = [
@@ -149,8 +163,50 @@ def test_multiple_events_use_batch_send(mock_secrets, mock_sqs) -> None:
     headers = _signed_headers("POST", TARGET_URL, body.encode())
     response = receiver.handler(_api_event("POST", body, headers), context=None)
     assert response["statusCode"] == 200
-    # 15 events should be sent in two batches of 10 + 5
+    # 15 events should be sent in two batches of 10 + 5 to the submit queue.
     assert mock_sqs.send_message_batch.call_count == 2
+
+
+def test_routes_dealstage_vs_amount_to_separate_queues(mock_secrets, mock_sqs) -> None:
+    events = [
+        {
+            "objectId": 1,
+            "subscriptionType": "object.propertyChange",
+            "propertyName": "dealstage",
+        },
+        {
+            "objectId": 2,
+            "subscriptionType": "object.propertyChange",
+            "propertyName": "amount",
+        },
+    ]
+    body = json.dumps(events)
+    mock_sqs.send_message_batch.return_value = {
+        "Successful": [{"Id": "0"}],
+        "Failed": [],
+    }
+    headers = _signed_headers("POST", TARGET_URL, body.encode())
+    response = receiver.handler(_api_event("POST", body, headers), context=None)
+    assert response["statusCode"] == 200
+    # Two separate batch calls: one to submit queue, one to update queue.
+    assert mock_sqs.send_message_batch.call_count == 2
+    queue_urls = {call.kwargs["QueueUrl"] for call in mock_sqs.send_message_batch.call_args_list}
+    assert any("submit" in url for url in queue_urls)
+    assert any("update" in url for url in queue_urls)
+
+
+def test_irrelevant_property_is_dropped(mock_secrets, mock_sqs) -> None:
+    body = json.dumps([{
+        "objectId": 1,
+        "subscriptionType": "object.propertyChange",
+        "propertyName": "hs_lastmodifieddate",
+    }])
+    headers = _signed_headers("POST", TARGET_URL, body.encode())
+    response = receiver.handler(_api_event("POST", body, headers), context=None)
+    assert response["statusCode"] == 200
+    body_json = json.loads(response["body"])
+    assert body_json["dropped"] == 1
+    assert mock_sqs.send_message_batch.call_count == 0
 
 
 def test_oversized_body_rejected(mock_secrets, mock_sqs) -> None:

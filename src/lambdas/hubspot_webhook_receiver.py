@@ -116,8 +116,37 @@ def _required_target_url() -> str:
     return url
 
 
+_UPDATE_PROPERTIES: frozenset[str] = frozenset(
+    {"amount", "closedate", "dealname", "description"}
+)
+
+
+def _route_event(ev: Any) -> str:
+    """Decide whether an event belongs on the submit queue or update queue.
+
+    Returns "submit" for dealstage transitions, "update" for content
+    property changes, or "drop" for events we do not act on.
+    """
+    if not isinstance(ev, dict):
+        return "drop"
+    if ev.get("subscriptionType") != "object.propertyChange":
+        return "drop"
+    prop = ev.get("propertyName")
+    if prop == "dealstage":
+        return "submit"
+    if prop in _UPDATE_PROPERTIES:
+        return "update"
+    if isinstance(prop, str) and prop.startswith("govwin_ace_"):
+        # ACE manual fields (delivery model, partner need): treat as update
+        # so the submission picks up the latest values.
+        return "update"
+    return "drop"
+
+
 def _send_sqs_batches(queue_url: str, events: list[Any]) -> int:
     """Enqueue events using SendMessageBatch (10 per call). Returns count sent."""
+    if not events:
+        return 0
     assert _sqs_client is not None
     sent = 0
     for offset in range(0, len(events), SQS_BATCH_SIZE):
@@ -202,9 +231,10 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
         logger.warning("hubspot webhook rejected: signature mismatch")
         return {"statusCode": 401, "body": "invalid signature"}
 
-    queue_url = config.aws.ace_submission_queue_url
-    if not queue_url:
-        logger.error("ACE_SUBMISSION_QUEUE_URL is not configured")
+    submit_queue = config.aws.ace_submission_queue_url
+    update_queue = config.aws.ace_update_queue_url
+    if not submit_queue or not update_queue:
+        logger.error("ACE submission/update queue URLs are not configured")
         return {"statusCode": 500, "body": "misconfigured"}
 
     try:
@@ -219,6 +249,29 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
         logger.warning("hubspot webhook rejected: %d events exceeds cap", len(events))
         return {"statusCode": 413, "body": "too many events"}
 
-    enqueued = _send_sqs_batches(queue_url, events)
-    logger.info("hubspot webhook accepted: enqueued=%d", enqueued)
-    return {"statusCode": 200, "body": json.dumps({"enqueued": enqueued})}
+    submit_events: list[Any] = []
+    update_events: list[Any] = []
+    dropped = 0
+    for ev in events:
+        target = _route_event(ev)
+        if target == "submit":
+            submit_events.append(ev)
+        elif target == "update":
+            update_events.append(ev)
+        else:
+            dropped += 1
+
+    enqueued_submit = _send_sqs_batches(submit_queue, submit_events)
+    enqueued_update = _send_sqs_batches(update_queue, update_events)
+    logger.info(
+        "hubspot webhook accepted: submit=%d update=%d dropped=%d",
+        enqueued_submit,
+        enqueued_update,
+        dropped,
+    )
+    return {
+        "statusCode": 200,
+        "body": json.dumps(
+            {"submit": enqueued_submit, "update": enqueued_update, "dropped": dropped}
+        ),
+    }
