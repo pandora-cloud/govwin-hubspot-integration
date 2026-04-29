@@ -131,3 +131,42 @@ def test_new_client_token_returns_uuid() -> None:
     token = ACEClient.new_client_token()
     assert isinstance(token, str)
     assert len(token) == 36
+
+
+def test_service_unavailable_is_retried(ace: ACEClient, mock_boto: MagicMock) -> None:
+    mock_boto.create_opportunity.side_effect = [
+        _client_error("ServiceUnavailableException"),
+        {"Id": "O3"},
+    ]
+    with patch("time.sleep"):
+        result = ace.create_opportunity({"Catalog": "Sandbox", "ClientToken": "tok"})
+    assert result["Id"] == "O3"
+    assert mock_boto.create_opportunity.call_count == 2
+
+
+def test_access_denied_is_not_retried(ace: ACEClient, mock_boto: MagicMock) -> None:
+    mock_boto.create_opportunity.side_effect = _client_error("AccessDeniedException")
+    with pytest.raises(ACEAPIError) as exc:
+        ace.create_opportunity({"Catalog": "Sandbox", "ClientToken": "tok"})
+    assert exc.value.code == "AccessDeniedException"
+    assert mock_boto.create_opportunity.call_count == 1
+
+
+def test_update_with_retry_uses_known_last_modified_first(
+    ace: ACEClient, mock_boto: MagicMock
+) -> None:
+    """When caller supplies LastModifiedDate, the first attempt skips GetOpportunity."""
+    mock_boto.update_opportunity.return_value = {"LastModifiedDate": "T2"}
+    ace.update_with_retry("O1", {"a": "b"}, known_last_modified_date="T1")
+    mock_boto.get_opportunity.assert_not_called()
+    kwargs = mock_boto.update_opportunity.call_args.kwargs
+    assert kwargs["LastModifiedDate"] == "T1"
+
+
+def test_update_with_retry_raises_when_lmd_missing(
+    ace: ACEClient, mock_boto: MagicMock
+) -> None:
+    mock_boto.get_opportunity.return_value = {}  # missing LastModifiedDate
+    with pytest.raises(ACEAPIError) as exc:
+        ace.update_with_retry("O1", {"a": "b"})
+    assert exc.value.code == "MissingLastModifiedDate"

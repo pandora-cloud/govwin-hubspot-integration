@@ -130,14 +130,82 @@ def test_failure_records_batch_item_failure(event_factory, deal_payload) -> None
     assert result["batchItemFailures"] == [{"itemIdentifier": "m1"}]
 
 
-def test_invalid_json_body_records_failure() -> None:
+def test_invalid_json_body_dropped_not_retried() -> None:
+    """Invalid JSON is a permanent error; do not loop the message via SQS."""
     event = {"Records": [{"messageId": "bad", "body": "{not json"}]}
     ace, state, hubspot = _patches({})
     with patch.object(submit_to_ace, "ACEClient", return_value=ace), \
          patch.object(submit_to_ace, "SyncStateManager", return_value=state), \
          patch.object(submit_to_ace, "HubSpotClient", return_value=hubspot):
         result = submit_to_ace.handler(event, context=None)
-    assert result["batchItemFailures"] == [{"itemIdentifier": "bad"}]
+    assert result["batchItemFailures"] == []
+
+
+def test_resume_from_engagement_skips_all_three_calls(event_factory, deal_payload) -> None:
+    """Already-engaged deal should be a no-op clean replay."""
+    ace, state, hubspot = _patches(deal_payload)
+    state.get_ace_mapping.return_value = {
+        "ace_opportunity_id": "O-DONE",
+        "ace_task_id": "T-DONE",
+        "ace_engagement_invitation_id": "EI-DONE",
+        "last_modified_date": "2026-04-29T00:00:00Z",
+        "client_token": "tok-old",
+    }
+    with patch.object(submit_to_ace, "ACEClient", return_value=ace), \
+         patch.object(submit_to_ace, "SyncStateManager", return_value=state), \
+         patch.object(submit_to_ace, "HubSpotClient", return_value=hubspot):
+        result = submit_to_ace.handler(event_factory(), context=None)
+    assert ace.create_opportunity.call_count == 0
+    assert ace.associate_opportunity.call_count == 0
+    assert ace.start_engagement_from_opportunity_task.call_count == 0
+    assert result["results"][0]["status"] == "submitted"
+
+
+def test_permanent_validation_error_is_dropped(event_factory, deal_payload) -> None:
+    from src.ace.client import ACEAPIError
+
+    ace, state, hubspot = _patches(deal_payload)
+    ace.create_opportunity.side_effect = ACEAPIError("bad", code="ValidationException")
+    with patch.object(submit_to_ace, "ACEClient", return_value=ace), \
+         patch.object(submit_to_ace, "SyncStateManager", return_value=state), \
+         patch.object(submit_to_ace, "HubSpotClient", return_value=hubspot):
+        result = submit_to_ace.handler(event_factory(), context=None)
+    # Permanent errors must not be retried via SQS.
+    assert result["batchItemFailures"] == []
+
+
+def test_transient_throttling_is_retried(event_factory, deal_payload) -> None:
+    from src.ace.client import ACEAPIError
+
+    ace, state, hubspot = _patches(deal_payload)
+    ace.create_opportunity.side_effect = ACEAPIError("slow", code="ThrottlingException")
+    with patch.object(submit_to_ace, "ACEClient", return_value=ace), \
+         patch.object(submit_to_ace, "SyncStateManager", return_value=state), \
+         patch.object(submit_to_ace, "HubSpotClient", return_value=hubspot):
+        result = submit_to_ace.handler(event_factory(), context=None)
+    assert result["batchItemFailures"] == [{"itemIdentifier": "m1"}]
+
+
+def test_invalid_objectid_skipped(event_factory, deal_payload) -> None:
+    ace, state, hubspot = _patches(deal_payload)
+    bad_event = {
+        "Records": [
+            {
+                "messageId": "m1",
+                "body": json.dumps({
+                    "objectId": "../etc/passwd",
+                    "subscriptionType": "object.propertyChange",
+                    "propertyName": "dealstage",
+                    "propertyValue": "submit_to_aws",
+                }),
+            }
+        ]
+    }
+    with patch.object(submit_to_ace, "ACEClient", return_value=ace), \
+         patch.object(submit_to_ace, "SyncStateManager", return_value=state), \
+         patch.object(submit_to_ace, "HubSpotClient", return_value=hubspot):
+        result = submit_to_ace.handler(bad_event, context=None)
+    assert result["results"][0]["status"] == "skipped"
 
 
 def test_associate_conflict_is_treated_as_success(event_factory, deal_payload) -> None:

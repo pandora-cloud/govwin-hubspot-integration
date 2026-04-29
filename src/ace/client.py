@@ -146,21 +146,37 @@ class ACEClient:
         identifier: str,
         updates: dict[str, Any],
         max_attempts: int = 3,
+        known_last_modified_date: Any | None = None,
     ) -> dict[str, Any]:
-        """Update an opportunity, refreshing LastModifiedDate on ConflictException."""
+        """Update an opportunity, refreshing LastModifiedDate on ConflictException.
+
+        :param known_last_modified_date: caller-provided LastModifiedDate (e.g.
+            persisted in DynamoDB after the last successful write). When
+            supplied the first attempt skips the GetOpportunity round-trip;
+            subsequent attempts always refetch.
+        """
         last_error: Exception | None = None
+        last_modified = known_last_modified_date
         for attempt in range(max_attempts):
-            current = self.get_opportunity(identifier)
+            if last_modified is None:
+                current = self.get_opportunity(identifier)
+                last_modified = current.get("LastModifiedDate")
+                if last_modified is None:
+                    raise ACEAPIError(
+                        f"GetOpportunity returned no LastModifiedDate for {identifier}",
+                        code="MissingLastModifiedDate",
+                    )
             try:
                 return self.update_opportunity(
                     identifier=identifier,
-                    last_modified_date=current["LastModifiedDate"],
+                    last_modified_date=last_modified,
                     updates=updates,
                 )
             except ACEAPIError as exc:
                 if exc.code != "ConflictException":
                     raise
                 last_error = exc
+                last_modified = None  # force refetch on next attempt
                 logger.warning(
                     "ConflictException on update %s attempt %d/%d; refetching",
                     identifier,

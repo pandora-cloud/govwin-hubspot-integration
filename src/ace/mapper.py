@@ -1,4 +1,4 @@
-"""Map a HubSpot deal record to an AWS Partner Central CreateOpportunity payload.
+"""HubSpot deal -> AWS Partner Central CreateOpportunity payload.
 
 The pipeline keeps three fields **manual** because they cannot be reliably
 auto-populated from GovWin data:
@@ -88,7 +88,10 @@ def _project_block(deal: dict[str, Any]) -> dict[str, Any]:
         )
     invalid = [m for m in delivery_models if m not in ALLOWED_DELIVERY_MODELS]
     if invalid:
-        raise ACEMappingError(f"Invalid DeliveryModels: {invalid}")
+        raise ACEMappingError(
+            f"Invalid DeliveryModels: {len(invalid)} value(s) not in the "
+            "AWS-published enum"
+        )
 
     project: dict[str, Any] = {
         "Title": title[:255],
@@ -149,7 +152,11 @@ def map_hubspot_deal_to_ace_create_payload(
         )
     invalid_needs = [n for n in primary_needs if n not in ALLOWED_PRIMARY_NEEDS]
     if invalid_needs:
-        raise ACEMappingError(f"Invalid PrimaryNeedsFromAws: {invalid_needs}")
+        # Redact full values; report only count to keep deal text out of logs/DLQ.
+        raise ACEMappingError(
+            f"Invalid PrimaryNeedsFromAws: {len(invalid_needs)} value(s) not "
+            "in the AWS-published enum"
+        )
 
     govwin_id = _get(deal, "govwin_opp_id") or _get(deal, "govwin_iq_opp_id")
 
