@@ -167,3 +167,51 @@ variable "tags" {
   type        = map(string)
   default     = {}
 }
+
+# -----------------------------------------------------------------------------
+# ACE (AWS Partner Central) configuration
+# -----------------------------------------------------------------------------
+
+variable "ace_catalog" {
+  description = "AWS Partner Central catalog: Sandbox (testing) or AWS (production)"
+  type        = string
+  default     = "Sandbox"
+  validation {
+    condition     = contains(["Sandbox", "AWS"], var.ace_catalog)
+    error_message = "ace_catalog must be Sandbox or AWS."
+  }
+}
+
+variable "ace_default_solution_id" {
+  description = "Default Partner Central Solution ID (e.g. S-0051246 for Pandora Cloud Professional Services)"
+  type        = string
+}
+
+variable "ace_default_involvement_type" {
+  description = "AWS involvement type for engagement submissions"
+  type        = string
+  default     = "Co-Sell"
+}
+
+variable "ace_default_visibility" {
+  description = "Visibility level for engagements"
+  type        = string
+  default     = "Full"
+}
+
+variable "ace_trigger_stages" {
+  description = "Comma-separated HubSpot deal stage internal IDs that trigger ACE submission"
+  type        = string
+  default     = "submit_to_aws,submitted_to_aws"
+}
+
+variable "hubspot_webhook_app_id" {
+  description = "HubSpot developer-platform app id (numeric string from hs project upload)"
+  type        = string
+}
+
+variable "hubspot_webhook_client_secret" {
+  description = "HubSpot client secret used for X-HubSpot-Signature-v3 validation"
+  type        = string
+  sensitive   = true
+}

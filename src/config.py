@@ -44,6 +44,7 @@ class AWSConfig:
     sns_topic_arn: str = ""
     dlq_url: str = ""
     ace_submission_queue_url: str = ""
+    ace_update_queue_url: str = ""
 
 
 @dataclass(frozen=True)
@@ -127,6 +128,7 @@ def load_config() -> AppConfig:
             sns_topic_arn=os.environ.get("SNS_TOPIC_ARN", ""),
             dlq_url=os.environ.get("DLQ_URL", ""),
             ace_submission_queue_url=os.environ.get("ACE_SUBMISSION_QUEUE_URL", ""),
+            ace_update_queue_url=os.environ.get("ACE_UPDATE_QUEUE_URL", ""),
         ),
         sync=SyncConfig(
             max_concurrency=int(os.environ.get("MAX_CONCURRENCY", "2")),
