@@ -33,7 +33,7 @@ The `aws.partnercentral-selling` source publishes to the partner's **default** E
   "detail-type": "Opportunity Updated",
   "time": "2026-04-28T15:23:45Z",
   "region": "us-east-1",
-  "account": "555049241846",
+  "account": "123456789012",
   "detail": {
     "schemaVersion": "1.0",
     "catalog": "AWS",
@@ -56,7 +56,7 @@ The detail payload carries only the opportunity ID. Per AWS best practice, batch
   "detail-type": "Engagement Invitation Created",
   "time": "2026-04-28T12:34:56Z",
   "region": "us-east-1",
-  "account": "555049241846",
+  "account": "123456789012",
   "resources": [
     "arn:aws:partnercentral:us-east-1::catalog/AWS/engagement-invitation/engi-v7p8z56whnauo"
   ],
@@ -67,7 +67,7 @@ The detail payload carries only the opportunity ID. Per AWS best practice, batch
       "id": "engi-v7p8z56whnauo",
       "engagementId": "eng-12345678901234",
       "senderAccountId": "AWS",
-      "receiverAccountId": "555049241846",
+      "receiverAccountId": "123456789012",
       "senderCompanyName": "AWS",
       "expirationDate": "2026-05-13T00:00:00Z",
       "participantType": "Receiver",
