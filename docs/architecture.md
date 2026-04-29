@@ -6,7 +6,7 @@ This integration sits between two external APIs and orchestrates data flow on AW
 
 ![Architecture Diagram](diagrams/architecture.svg)
 
-The pipeline flows from GovWin IQ through this integration into HubSpot CRM, and optionally on to AWS Partner Central via the SaaSify ACE Connector.
+The pipeline flows from GovWin IQ through this integration into HubSpot CRM, and onward to AWS Partner Central via the integration's own AWS Partner Central Selling API client (the SaaSify ACE Connector is no longer required).
 
 ![Pipeline Overview](diagrams/pipeline-overview.svg)
 
@@ -62,15 +62,20 @@ On any error:
 
 ## Lambda Functions
 
-| Function | Purpose | Timeout | Memory |
-|---|---|---|---|
-| `authenticate` | Get/refresh GovWin OAuth token | 30s | 128 MB |
-| `discover_changes` | Search for updated opportunities | 5 min | 256 MB |
-| `fetch_opp_details` | Fetch full opportunity data for a batch | 5 min | 256 MB |
-| `sync_to_hubspot` | Push data to HubSpot via batch APIs | 5 min | 256 MB |
-| `update_sync_state` | Persist sync state to DynamoDB | 30s | 128 MB |
-| `setup_hubspot` | One-time: create custom properties and pipeline | 2 min | 128 MB |
-| `handle_error` | Error notification and DLQ management | 30s | 128 MB |
+| Function | Purpose | Trigger | Timeout | Memory |
+|---|---|---|---|---|
+| `authenticate` | Get/refresh GovWin OAuth token | Step Function | 30s | 128 MB |
+| `discover_changes` | Search for updated opportunities | Step Function | 5 min | 256 MB |
+| `fetch_opp_details` | Fetch full opportunity data for a batch | Step Function | 5 min | 256 MB |
+| `sync_to_hubspot` | Push data to HubSpot via batch APIs | Step Function | 5 min | 256 MB |
+| `update_sync_state` | Persist sync state to DynamoDB | Step Function | 30s | 128 MB |
+| `setup_hubspot` | One-time: create custom properties and pipeline | Manual / deploy | 2 min | 128 MB |
+| `handle_error` | Error notification and DLQ management | Step Function | 30s | 128 MB |
+| `hubspot_webhook_receiver` | Validate `X-HubSpot-Signature-v3`, route events to SQS | API Gateway HTTP API | 5s | 256 MB |
+| `submit_to_ace` | Three-call ACE submission (Create + Associate + StartEngagement) with resume-from-step idempotency | SQS submit queue | 5 min | 512 MB |
+| `update_in_ace` | UpdateOpportunity with optimistic locking on `LastModifiedDate` | SQS update queue | 2 min | 256 MB |
+| `handle_ace_event` | Mirror EventBridge events from `aws.partnercentral-selling` back to HubSpot deal stage | EventBridge | 1 min | 256 MB |
+| `setup_hubspot_webhooks` | One-time: register webhook subscriptions on the HubSpot dev-platform app | Manual / deploy | 1 min | 128 MB |
 
 ## DynamoDB Tables
 
@@ -88,14 +93,13 @@ Stores sync cursors and per-opportunity state.
 
 ### `govwin_entity_mappings`
 
-Maps GovWin entities to HubSpot objects.
+Maps GovWin entities to HubSpot objects, plus ACE-side state.
 
-| Key | Type | Description |
+| pk pattern | sk | Purpose |
 |---|---|---|
-| `pk` | String | `GOVENTITY#{id}`, `CONTACT#{id}`, or `COMPANY#{id}` |
-| `sk` | String | `HUBSPOT_MAPPING` |
-| `hubspot_id` | String | Corresponding HubSpot object ID |
-| `last_synced` | String | ISO-8601 datetime of last sync |
+| `GOVENTITY#{id}` / `CONTACT#{id}` / `COMPANY#{id}` | `HUBSPOT_MAPPING` | GovWin entity to HubSpot object id |
+| `ACE#{govwin_id}` | `MAPPING` | AWS opportunity id, ClientToken, engagement task id, last-modified date for optimistic locking |
+| `EVT#{event_id}` | `SEEN` | EventBridge dedup record, 24-hour TTL |
 
 Both tables use a 180-day TTL on per-opportunity and entity-mapping records (the `SYNC_CURSOR` row has none). DynamoDB encryption-at-rest with AWS-managed keys is enabled by default.
 
@@ -115,6 +119,13 @@ Both tables use a 180-day TTL on per-opportunity and entity-mapping records (the
 - Batch endpoints process up to 100 records per request
 - 5,000 deals = 50 batch requests (well within limits)
 - Exponential backoff on 429 responses
+
+### AWS Partner Central (1 write/sec, 10 reads/sec)
+
+- Per-account rate limits enforced by a token-bucket limiter (`src/ace/rate_limiter.py`)
+- Tenacity retries on `ThrottlingException`, `InternalServerException`, and `ServiceUnavailableException`
+- Permanent errors (`ValidationException`, `AccessDeniedException`, `ResourceNotFoundException`) are dropped from the SQS batch instead of looping until DLQ
+- HubSpot webhook delivery: 5-second response budget; receiver validates the signature, routes the event to SQS, and returns 200. All ACE API calls happen off the webhook critical path.
 
 ## Security
 

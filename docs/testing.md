@@ -171,3 +171,23 @@ These issues were found and fixed during production testing with real GovWin dat
 | HubSpot date fields require epoch milliseconds | Added `_to_hubspot_timestamp()` converter |
 | `hasUniqueValue` can't be set on existing properties | Created new `govwin_id` and `govwin_entity_id` dedup keys |
 | Contact association lookup used email instead of contact_id | Fixed to use `contact_id` matching DynamoDB mappings |
+
+## ACE sandbox smoke matrix
+
+Run before flipping `ace_catalog` from `Sandbox` to `AWS`. Each test is scriptable and self-cleans by archiving the sandbox opportunities afterward.
+
+| # | Scenario | Method |
+|---|---|---|
+| 1 | `CreateOpportunity` in Sandbox | Direct boto3 call from a script; verify the response contains `Id` and `LastModifiedDate` |
+| 2 | `AssociateOpportunity` with the configured Solution | Use the first item from `aws partnercentral-selling list-solutions --catalog Sandbox` |
+| 3 | `StartEngagementFromOpportunityTask` | Verify the task transitions IN_PROGRESS -> COMPLETE |
+| 4 | `UpdateOpportunity` with optimistic locking | Update twice in sequence; second call uses the fresh `LastModifiedDate` from the first response |
+| 5 | `UpdateOpportunity` with stale lock (negative test) | Force a `ConflictException` by passing the previous `LastModifiedDate`; verify our retry logic refetches and succeeds |
+| 6 | EventBridge `Opportunity Updated` | Modify the sandbox opp; verify `handle_ace_event` fires and the HubSpot deal stage updates |
+| 7 | EventBridge `Engagement Invitation Accepted` | Accept the invitation in sandbox; verify HubSpot stage moves to `approved_by_aws` |
+| 8 | EventBridge `Engagement Invitation Rejected` | Reject the invitation; verify HubSpot stage moves to `closedlost` |
+| 9 | HubSpot webhook signature validation (positive) | Trigger a real deal-stage change in HubSpot; verify the receiver returns 200 and the SQS submit queue gets a message |
+| 10 | HubSpot webhook signature validation (negative) | Send a forged `X-HubSpot-Signature-v3` header to the API Gateway URL; verify 401 |
+| 11 | End-to-end: GovWin marked -> HubSpot synced -> BD edits -> stage transition -> ACE submission | Full pipeline against the Sandbox catalog; verify the AWS Partner Central UI shows the opportunity with correct fields |
+
+For automation scaffolding, see `scripts/find_test_candidates.py` and `scripts/check_marked_and_hubspot.py` for the v1 pattern.
