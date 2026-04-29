@@ -295,6 +295,22 @@ class HubSpotClient:
 
         return results
 
+    def get_deal(
+        self, deal_id: str, properties: list[str] | None = None
+    ) -> dict[str, Any]:
+        """Fetch a single deal by HubSpot object id with the requested properties."""
+        params: dict[str, Any] = {}
+        if properties:
+            params["properties"] = ",".join(properties)
+        return self._get(f"crm/v3/objects/deals/{deal_id}", params=params)
+
+    def update_deal(self, deal_id: str, properties: dict[str, Any]) -> dict[str, Any]:
+        """Patch a single deal's properties."""
+        return self._patch(
+            f"crm/v3/objects/deals/{deal_id}",
+            {"properties": properties},
+        )
+
     def search_deal_by_govwin_id(self, govwin_opp_id: str) -> dict[str, Any] | None:
         """Search for a deal by its GovWin opportunity ID."""
         result = self._post(

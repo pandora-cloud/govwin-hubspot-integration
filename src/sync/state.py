@@ -199,3 +199,94 @@ class SyncStateManager:
                         "ttl": int(time.time()) + 180 * 86400,
                     }
                 )
+
+    # -----------------------------------------------------------------------
+    # ACE (AWS Partner Central) Mappings
+    # -----------------------------------------------------------------------
+
+    def get_ace_mapping(self, govwin_id: str) -> dict[str, Any] | None:
+        """Return the ACE record for a GovWin opportunity, or None if not submitted."""
+        try:
+            response = self._mappings_table.get_item(
+                Key={"pk": f"ACE#{govwin_id}", "sk": "MAPPING"}
+            )
+            item = response.get("Item")
+            return dict(item) if item else None
+        except ClientError:
+            logger.warning("Failed to read ACE mapping for %s", govwin_id)
+            return None
+
+    def set_ace_mapping(
+        self,
+        govwin_id: str,
+        ace_opportunity_id: str,
+        last_modified_date: str | None = None,
+        ace_engagement_invitation_id: str | None = None,
+        ace_task_id: str | None = None,
+        client_token: str | None = None,
+        hubspot_deal_id: str | None = None,
+    ) -> None:
+        """Persist the ACE-side identifiers for a HubSpot deal."""
+        item: dict[str, Any] = {
+            "pk": f"ACE#{govwin_id}",
+            "sk": "MAPPING",
+            "ace_opportunity_id": ace_opportunity_id,
+            "updated_at": datetime.now(UTC).isoformat(),
+            "ttl": int(time.time()) + 365 * 86400,
+        }
+        if last_modified_date:
+            item["last_modified_date"] = last_modified_date
+        if ace_engagement_invitation_id:
+            item["ace_engagement_invitation_id"] = ace_engagement_invitation_id
+        if ace_task_id:
+            item["ace_task_id"] = ace_task_id
+        if client_token:
+            item["client_token"] = client_token
+        if hubspot_deal_id:
+            item["hubspot_deal_id"] = hubspot_deal_id
+        self._mappings_table.put_item(Item=item)
+
+    def reserve_client_token(self, govwin_id: str, client_token: str) -> str:
+        """Persist a ClientToken for a pending CreateOpportunity call.
+
+        Returns the existing token if one is already reserved (so a SQS
+        redelivery reuses the same idempotency key); otherwise stores and
+        returns the new token. This guards against duplicate ACE opportunities
+        when a Lambda retries after a partial failure.
+        """
+        existing = self.get_ace_mapping(govwin_id)
+        if existing and existing.get("client_token"):
+            return str(existing["client_token"])
+        # Reserve a stub mapping; ace_opportunity_id is filled after the call.
+        self._mappings_table.put_item(
+            Item={
+                "pk": f"ACE#{govwin_id}",
+                "sk": "MAPPING",
+                "client_token": client_token,
+                "ace_opportunity_id": "",
+                "reserved_at": datetime.now(UTC).isoformat(),
+                "ttl": int(time.time()) + 365 * 86400,
+            }
+        )
+        return client_token
+
+    def is_event_seen(self, event_id: str) -> bool:
+        """Return True if we have already processed this EventBridge event id."""
+        try:
+            response = self._mappings_table.get_item(
+                Key={"pk": f"EVT#{event_id}", "sk": "SEEN"}
+            )
+            return response.get("Item") is not None
+        except ClientError:
+            return False
+
+    def mark_event_seen(self, event_id: str, ttl_seconds: int = 86400) -> None:
+        """Mark an EventBridge event id as processed, with a 24h TTL."""
+        self._mappings_table.put_item(
+            Item={
+                "pk": f"EVT#{event_id}",
+                "sk": "SEEN",
+                "seen_at": datetime.now(UTC).isoformat(),
+                "ttl": int(time.time()) + ttl_seconds,
+            }
+        )
