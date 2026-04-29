@@ -38,6 +38,18 @@ variable "deployer_principal_arns" {
   }
 }
 
+variable "require_mfa_to_assume_deployer" {
+  description = <<-EOT
+    Whether the deployer role's trust policy requires MFA on the assume call.
+    Default true for compliance posture. Set to false ONLY when bootstrapping
+    against an account where the deployer principals do not have MFA-stamped
+    credentials yet (e.g. early sandbox testing with regular access keys).
+    Production must keep this true.
+  EOT
+  type        = bool
+  default     = true
+}
+
 variable "state_bucket_force_destroy" {
   description = "Allow terraform destroy to delete a non-empty state bucket. Default false; flip only for tear-down testing."
   type        = bool
