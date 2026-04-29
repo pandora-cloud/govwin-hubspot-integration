@@ -250,14 +250,67 @@ aws stepfunctions start-execution \
 - **CloudWatch Logs**: Detailed logs for each Lambda function
 - **SNS Notifications**: Summary email after each sync (if notification_email is set)
 
-## Step 9: (Optional) Configure SaaSify ACE Connector
+## Step 9: Wire up the AWS Partner Central submission half (v2)
 
-If you want to submit synced deals to AWS Partner Central:
+The GovWin to HubSpot half is now running. To submit deals onward to AWS Partner Central via this project's own Selling-API client (no SaaSify required):
 
-1. Ensure the SaaSify ACE Connector is installed from the AWS Marketplace
-2. Map the GovWin fields to ACE fields in SaaSify settings (see [ACE Integration Guide](ace-integration.md))
-3. After sync, review deals in HubSpot and fill the 3 manual ACE fields
-4. Submit to AWS Partner Central via the SaaSify connector
+### 9a. Confirm AWS Partner Central prerequisites
+
+```bash
+# Confirm sandbox catalog access (should return an empty list, not AccessDenied)
+aws partnercentral-selling list-opportunities --catalog Sandbox --region us-east-1
+
+# Discover your Approved Solutions and pick one to set as ace_default_solution_id
+aws partnercentral-selling list-solutions --catalog AWS --region us-east-1 \
+  --query 'SolutionSummaries[].{Id:Id,Name:Name,Status:Status,Category:Category}'
+```
+
+If `list-solutions` returns nothing, register one in the Partner Central UI under **Sell -> My Solutions** before continuing.
+
+### 9b. Create the HubSpot developer-platform app
+
+The legacy private-app UI is gone in HubSpot 2025.2+; the new path is the developer-platform projects framework:
+
+```bash
+npm install -g @hubspot/cli
+hs init                   # authenticates against your HubSpot account
+hs project upload         # uploads the bundled hubspot-app/ project
+```
+
+The project (`hubspot-app/`) is committed to the repo with the right scopes and webhook subscriptions pre-declared (deal-stage, amount, closedate, dealname, govwin_ace_delivery_model, govwin_ace_partner_need). Subscriptions ship inactive; we activate them in step 9d after the API Gateway URL is known.
+
+After upload, copy the **App ID** and **client secret** from the HubSpot developer portal.
+
+### 9c. Set the v2 Terraform variables
+
+```hcl
+ace_catalog                   = "Sandbox"             # flip to "AWS" only after sandbox tests pass
+ace_default_solution_id       = "S-0051246"           # from list-solutions output above
+hubspot_webhook_app_id        = "12345678"            # from HubSpot dev portal
+hubspot_webhook_client_secret = "client-secret-from-hubspot"
+```
+
+Then re-run `terraform apply`. The output `hubspot_webhook_target_url` is the public URL HubSpot should POST to.
+
+### 9d. Activate the webhook subscriptions
+
+Paste the `hubspot_webhook_target_url` value into `hubspot-app/src/app/webhooks/webhooks-hsmeta.json` (replacing the placeholder), flip every `"active": false` to `"active": true`, and re-run:
+
+```bash
+hs project upload
+```
+
+HubSpot now delivers deal property changes to the API Gateway. The receiver Lambda validates the signature, routes events to the appropriate SQS queue, and the `submit_to_ace` / `update_in_ace` Lambdas drain them.
+
+### 9e. Smoke test
+
+Run the sandbox smoke matrix (see [Testing Guide](testing.md#ace-sandbox-smoke-matrix)) before flipping `ace_catalog` to `AWS`. Once green, change to production:
+
+```hcl
+ace_catalog = "AWS"
+```
+
+`terraform apply` rebuilds the IAM policy without the `Catalog: Sandbox` condition. Production smoke is a single low-stakes opportunity end-to-end (Phase 4.2 of the rollout plan).
 
 ## Updating
 

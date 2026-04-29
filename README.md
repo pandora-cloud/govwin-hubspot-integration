@@ -1,16 +1,20 @@
-# GovWin-HubSpot Integration
+# GovWin to AWS Partner Central, end-to-end and open-source
 
-Sync government contracting opportunities from Deltek GovWin IQ into HubSpot CRM, with fields pre-populated for AWS Partner Central co-selling.
+The first fully open-source pipeline from Deltek GovWin IQ to AWS Partner Central, via HubSpot CRM. No SaaSify, no Commercient, no paid dependencies. MIT licensed.
 
-Built and maintained by [Pandora Cloud](https://pandoracloud.net). Free to use under the MIT license.
+Built and maintained by [Pandora Cloud](https://pandoracloud.net).
 
 ## What This Does
 
-This integration connects Deltek GovWin IQ to HubSpot CRM. Government opportunities tracked in GovWin - including their associated agencies, contacts, and contract details - are automatically synced into HubSpot as deals, companies, and contacts. Your business development team marks opportunities in GovWin, and they appear in HubSpot within hours, fully populated with 30 custom properties.
+Federal AWS partners use this to mark opportunities in GovWin and have them flow automatically through HubSpot CRM, where the BD team reviews and adds three ACE-required fields, and into AWS Partner Central as ACE-submitted co-sell deals. The integration handles three boundaries the rest of the market makes you stitch together yourself:
 
-The full pipeline runs from GovWin through HubSpot and on to AWS Partner Central. GovWin is the source of truth for opportunity data. This integration moves that data into HubSpot, where BD teams review and enrich it. The SaaSify ACE Connector (installed separately in HubSpot) then submits qualified deals to AWS Partner Central for co-selling with AWS field teams.
+1. **GovWin IQ to HubSpot.** Marked opportunities sync into HubSpot every few hours with their agency, contacts, and contract details pre-populated across 30 custom properties.
+2. **HubSpot to AWS Partner Central.** When a deal moves to a "Submit to AWS" stage, a HubSpot webhook fires, the integration calls `CreateOpportunity` -> `AssociateOpportunity` -> `StartEngagementFromOpportunityTask` against the AWS Partner Central Selling API, and the engagement is queued for AWS review.
+3. **AWS Partner Central back to HubSpot.** EventBridge events on `aws.partnercentral-selling` flow into a handler that updates the HubSpot deal stage based on AWS's review outcome (Approved / Action Required / Rejected / Expired).
 
-The sync runs incrementally - only opportunities that changed since the last run are processed. Built-in rate limiting respects both GovWin's 4,000 calls/hour cap and HubSpot's 100 requests/10 seconds limit. Nine of the twelve mandatory AWS ACE fields are auto-populated from GovWin data, leaving only three for manual entry before submission.
+Nine of the twelve mandatory ACE fields are auto-populated from GovWin data. Three fields require manual entry by BD in HubSpot before the deal is submission-ready: **Delivery Model**, **AWS Solution**, and **Partner Primary Need from AWS**. This is intentional, and the README calls it out so users do not expect a fully-automated flow.
+
+The sync runs incrementally and respects both GovWin's 4,000 calls/hour cap and the AWS Partner Central 1 write/sec, 10 reads/sec quotas.
 
 ![Pipeline Overview](docs/diagrams/pipeline-overview.svg)
 
@@ -20,19 +24,38 @@ The sync runs incrementally - only opportunities that changed since the last run
 
 1. **Find an opportunity in GovWin IQ** and click "Add to Web Services Download" on the opportunity detail page.
 2. **The integration syncs it to HubSpot** on the next scheduled run (default: every 4 hours). A deal appears in your **Government** pipeline with the opportunity details, agency, and contacts already filled in.
-3. **Review the deal in HubSpot**, fill in 3 fields for ACE, and submit to AWS Partner Central via the SaaSify connector.
+3. **Review the deal in HubSpot**, fill in three ACE fields (Delivery Model, AWS Solution, Partner Primary Need from AWS), and move the stage to **Submit to AWS**.
+4. **The submission fires automatically** via HubSpot webhook. The deal moves through the AWS Partner Central review and the HubSpot stage updates as AWS responds.
 
 ### Under the hood
 
 ![Architecture](docs/diagrams/architecture.svg)
 
-- **AWS Step Functions** - Orchestrates the multi-step sync workflow, handling pagination, batching, and error recovery.
-- **AWS Lambda (x7)** - Python 3.12 functions running on ARM64 (Graviton2) for each step: authenticate, discover changes, fetch details, sync to HubSpot, update state, setup properties, and handle errors.
-- **Amazon DynamoDB** - Two tables track sync cursors, per-opportunity update timestamps, and GovWin-to-HubSpot ID mappings.
-- **AWS Secrets Manager** - Stores GovWin credentials, OAuth tokens, and the HubSpot API token. Tokens are refreshed automatically before expiry.
-- **Amazon EventBridge** - Triggers the Step Function on a configurable schedule.
-- **Amazon SNS** - Sends email notifications with sync summaries and error alerts.
-- **Amazon SQS** - Dead letter queue captures failed operations for later inspection.
+The GovWin to HubSpot half (existing v1):
+
+- **AWS Step Functions** orchestrates the multi-step sync; **EventBridge** fires it on a configurable schedule.
+- **AWS Lambda (x7)** for each step: authenticate, discover changes, fetch details, sync to HubSpot, update state, setup properties, error handling.
+- **DynamoDB** tracks sync cursors, per-opportunity update timestamps, and GovWin-to-HubSpot ID mappings.
+- **Secrets Manager** stores GovWin credentials, OAuth tokens, and the HubSpot REST token.
+- **SNS** sends email notifications; **SQS** dead-letter queue captures failed operations.
+
+The HubSpot to AWS Partner Central half (new in v2):
+
+- **HubSpot developer-platform app** (private, static auth) registers webhook subscriptions for the deal properties we care about.
+- **API Gateway HTTP API** in front of a small Lambda receiver that validates `X-HubSpot-Signature-v3` and routes events into either the submit queue (deal-stage transitions) or the update queue (content-property changes).
+- **Two SQS queues with DLQs** decouple webhook delivery from the AWS Partner Central API calls so we never blow HubSpot's 5-second response budget.
+- **Three new AWS Lambdas:** `submit_to_ace` runs the three-call submission with resume-from-step idempotency, `update_in_ace` handles UpdateOpportunity with optimistic locking, and `handle_ace_event` consumes EventBridge events from `aws.partnercentral-selling` to mirror AWS-side state changes back into HubSpot.
+- **DynamoDB** ACE# pk pattern stores the AWS opportunity ID, ClientToken, engagement task ID, and last-modified date for optimistic locking on subsequent updates.
+
+## How does this compare to other tools?
+
+| | This project (v2) | This project (v1) | SaaSify ACE Connector | Commercient SYNC | Salesforce Connector |
+|---|---|---|---|---|---|
+| GovWin to HubSpot | Yes | Yes | No | Yes | No |
+| HubSpot to AWS Partner Central | Yes (direct API) | Via SaaSify | Yes | No | No |
+| Open source | Yes (MIT) | Yes (MIT) | No | No | No |
+| Cost | Free | Free | $$$/seat/month | $$/seat/month | $$/seat/month |
+| Federal-aware (NAICS, GovWin status) | Yes | Yes | No | No | No |
 
 ## ACE-Ready Deals
 
@@ -58,13 +81,14 @@ For the full end-to-end ACE submission workflow, see the [ACE Integration Guide]
 ## Prerequisites
 
 - [ ] **Deltek GovWin IQ** subscription with WSAPI V3 access (Client ID, Client Secret, username, password)
-- [ ] **HubSpot** account (Professional or Enterprise) with a Service Key or Private App token
-- [ ] **AWS** account with permissions for Lambda, Step Functions, DynamoDB, Secrets Manager, EventBridge, SNS, SQS, IAM, and CloudWatch
+- [ ] **HubSpot** account (Professional or Enterprise) with a private-app token plus a separate developer-platform app for webhook delivery (created via `hs project create`, see [Deployment Guide](docs/deployment-guide.md))
+- [ ] **AWS Partner Central** account linked to AWS Marketplace Seller, with at least one Approved Solution registered (run `aws partnercentral-selling list-solutions --catalog AWS` to confirm)
+- [ ] **AWS** account with permissions for Lambda, API Gateway, Step Functions, DynamoDB, Secrets Manager, EventBridge, SNS, SQS, IAM, and CloudWatch (must be `us-east-1` for Partner Central)
 - [ ] **Terraform** >= 1.5 ([install guide](https://developer.hashicorp.com/terraform/tutorials/aws-get-started/install-cli))
 - [ ] **AWS CLI** configured with credentials (`aws configure`)
 - [ ] **Python** >= 3.12 for building the Lambda layer
+- [ ] **HubSpot CLI** (`npm install -g @hubspot/cli`) for the developer-platform app
 - [ ] (Optional) **Docker** for local testing with LocalStack
-- [ ] (Optional) **SaaSify AWS ACE Connector** installed in HubSpot for AWS Partner Central submission
 
 ## Quick Start
 
