@@ -87,6 +87,17 @@ class AppConfig:
     environment: str = "prod"
 
 
+_VALID_ACE_CATALOGS = {"AWS", "Sandbox"}
+
+
+def _validated_catalog(value: str) -> str:
+    if value not in _VALID_ACE_CATALOGS:
+        raise ValueError(
+            f"ACE_CATALOG must be one of {sorted(_VALID_ACE_CATALOGS)}, got {value!r}"
+        )
+    return value
+
+
 def load_config() -> AppConfig:
     """Load configuration from environment variables with sensible defaults."""
     return AppConfig(
@@ -123,7 +134,7 @@ def load_config() -> AppConfig:
             batch_size=int(os.environ.get("BATCH_SIZE", "10")),
         ),
         ace=ACEConfig(
-            catalog=os.environ.get("ACE_CATALOG", "Sandbox"),
+            catalog=_validated_catalog(os.environ.get("ACE_CATALOG", "Sandbox")),
             default_solution_id=os.environ.get("ACE_DEFAULT_SOLUTION_ID", ""),
             default_involvement_type=os.environ.get("ACE_DEFAULT_INVOLVEMENT_TYPE", "Co-Sell"),
             default_visibility=os.environ.get("ACE_DEFAULT_VISIBILITY", "Full"),

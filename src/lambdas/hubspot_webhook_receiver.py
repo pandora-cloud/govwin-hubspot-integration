@@ -1,10 +1,9 @@
 """Receive HubSpot webhook deliveries, validate the signature, and enqueue.
 
-Triggered by API Gateway HTTP API. Signs validation headers per
-``X-HubSpot-Signature-v3`` and pushes the raw body onto SQS for asynchronous
-processing. Must respond within the documented 5-second budget so the heavy
-lifting (CreateOpportunity, AssociateOpportunity, etc.) happens off the
-webhook critical path.
+Triggered by API Gateway HTTP API. Validates ``X-HubSpot-Signature-v3`` and
+pushes events onto SQS for asynchronous processing. Must respond within the
+documented 5-second budget so heavy lifting (CreateOpportunity etc.) happens
+off the webhook critical path.
 """
 
 from __future__ import annotations
@@ -27,9 +26,17 @@ logger = logging.getLogger(__name__)
 logger.setLevel(os.environ.get("LOG_LEVEL", "INFO"))
 
 
+# Hard limits to keep DoS exposure bounded. HubSpot batches up to ~100
+# events per delivery (per the developer docs), so 100 events / 1 MiB body
+# is a generous ceiling that still constrains the Lambda runtime.
+MAX_BODY_BYTES = 1 * 1024 * 1024
+MAX_EVENTS_PER_DELIVERY = 100
+SQS_BATCH_SIZE = 10
+SECRET_CACHE_TTL_SECONDS = 300
+
 _secrets_client: Any | None = None
 _sqs_client: Any | None = None
-_secret_cache: dict[str, str] = {}
+_secret_cache: dict[str, tuple[str, float]] = {}
 
 
 def _ensure_clients(region: str) -> None:
@@ -41,19 +48,27 @@ def _ensure_clients(region: str) -> None:
         _sqs_client = boto3.client("sqs", region_name=region)
 
 
+class _ConfigError(Exception):
+    """Raised when a required webhook config value is missing or malformed."""
+
+
 def _get_signing_secret(secret_name: str) -> str:
-    """Cache the signing secret for the lifetime of the warm Lambda container."""
-    if secret_name in _secret_cache:
-        return _secret_cache[secret_name]
+    """Return the signing secret, refreshing the cache every TTL seconds."""
+    cached = _secret_cache.get(secret_name)
+    now = time.time()
+    if cached and (now - cached[1]) < SECRET_CACHE_TTL_SECONDS:
+        return cached[0]
     assert _secrets_client is not None
     response = _secrets_client.get_secret_value(SecretId=secret_name)
-    raw = response.get("SecretString", "{}")
+    raw = response.get("SecretString", "")
     try:
         parsed = json.loads(raw)
-        secret = parsed.get("client_secret") or parsed.get("clientSecret") or raw
-    except json.JSONDecodeError:
-        secret = raw
-    _secret_cache[secret_name] = secret
+    except json.JSONDecodeError as exc:
+        raise _ConfigError("hubspot webhook secret is not valid JSON") from exc
+    secret = parsed.get("client_secret") or parsed.get("clientSecret")
+    if not isinstance(secret, str) or not secret:
+        raise _ConfigError("hubspot webhook secret missing client_secret")
+    _secret_cache[secret_name] = (secret, now)
     return secret
 
 
@@ -71,7 +86,12 @@ def _validate_signature(
         ts_ms = int(timestamp_header)
     except (TypeError, ValueError):
         return False
-    if abs(time.time() * 1000 - ts_ms) > max_age_seconds * 1000:
+    if ts_ms <= 0:
+        return False
+    # Reject anything older than the policy window. Mild future-tolerance for
+    # clock skew across HubSpot edge nodes.
+    age_ms = time.time() * 1000 - ts_ms
+    if age_ms > max_age_seconds * 1000 or age_ms < -max_age_seconds * 1000:
         return False
     raw = method.encode() + url.encode() + raw_body + timestamp_header.encode()
     expected = base64.b64encode(
@@ -86,19 +106,48 @@ def _lower(headers: dict[str, Any] | None) -> dict[str, str]:
     return {str(k).lower(): str(v) for k, v in headers.items()}
 
 
-def _build_target_url(event: dict[str, Any]) -> str:
-    """Reconstruct the URL HubSpot used so the signature payload matches.
-
-    We honor ``HUBSPOT_WEBHOOK_TARGET_URL`` first because API Gateway behind a
-    custom domain may report a different host than HubSpot saw.
+def _required_target_url() -> str:
+    """Return the configured webhook URL or raise. The URL must match what
+    HubSpot signed against, so we never reconstruct it from request headers.
     """
-    override = os.environ.get("HUBSPOT_WEBHOOK_TARGET_URL")
-    if override:
-        return override
-    request_context = event.get("requestContext", {})
-    domain = request_context.get("domainName", "")
-    path = event.get("rawPath") or request_context.get("http", {}).get("path", "/")
-    return f"https://{domain}{path}"
+    url = os.environ.get("HUBSPOT_WEBHOOK_TARGET_URL", "").strip()
+    if not url:
+        raise _ConfigError("HUBSPOT_WEBHOOK_TARGET_URL is not configured")
+    return url
+
+
+def _send_sqs_batches(queue_url: str, events: list[Any]) -> int:
+    """Enqueue events using SendMessageBatch (10 per call). Returns count sent."""
+    assert _sqs_client is not None
+    sent = 0
+    for offset in range(0, len(events), SQS_BATCH_SIZE):
+        chunk = events[offset : offset + SQS_BATCH_SIZE]
+        entries = [
+            {
+                "Id": str(offset + i),
+                "MessageBody": json.dumps(ev),
+                "MessageAttributes": {
+                    "subscriptionType": {
+                        "DataType": "String",
+                        "StringValue": str(
+                            (ev or {}).get("subscriptionType", "unknown")
+                            if isinstance(ev, dict)
+                            else "unknown"
+                        ),
+                    }
+                },
+            }
+            for i, ev in enumerate(chunk)
+        ]
+        try:
+            response = _sqs_client.send_message_batch(QueueUrl=queue_url, Entries=entries)
+            sent += len(response.get("Successful", []))
+            failed = response.get("Failed", [])
+            if failed:
+                logger.warning("sqs batch had %d failed entries", len(failed))
+        except ClientError as exc:
+            logger.exception("send_message_batch failed: %s", exc)
+    return sent
 
 
 def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
@@ -121,20 +170,26 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
     else:
         raw_body = raw_body_str.encode("utf-8")
 
+    if len(raw_body) > MAX_BODY_BYTES:
+        logger.warning("hubspot webhook rejected: body %d bytes exceeds cap", len(raw_body))
+        return {"statusCode": 413, "body": "payload too large"}
+
     signature = headers.get("x-hubspot-signature-v3", "")
     timestamp = headers.get("x-hubspot-request-timestamp", "")
     if not signature or not timestamp:
         logger.warning("hubspot webhook rejected: missing signature/timestamp headers")
         return {"statusCode": 401, "body": "missing signature"}
 
-    secret_name = config.aws.hubspot_webhook_secret_name
     try:
-        secret = _get_signing_secret(secret_name)
+        target_url = _required_target_url()
+        secret = _get_signing_secret(config.aws.hubspot_webhook_secret_name)
+    except _ConfigError as exc:
+        logger.error("hubspot webhook config error: %s", exc)
+        return {"statusCode": 500, "body": "misconfigured"}
     except ClientError as exc:
         logger.error("Failed to fetch webhook signing secret: %s", exc)
         return {"statusCode": 500, "body": "secret unavailable"}
 
-    target_url = _build_target_url(event)
     if not _validate_signature(
         method=method,
         url=target_url,
@@ -160,23 +215,10 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
     if not isinstance(events, list):
         events = [events]
 
-    assert _sqs_client is not None
-    enqueued = 0
-    for hs_event in events:
-        try:
-            _sqs_client.send_message(
-                QueueUrl=queue_url,
-                MessageBody=json.dumps(hs_event),
-                MessageAttributes={
-                    "subscriptionType": {
-                        "DataType": "String",
-                        "StringValue": str(hs_event.get("subscriptionType", "unknown")),
-                    }
-                },
-            )
-            enqueued += 1
-        except ClientError as exc:
-            logger.exception("failed to enqueue hubspot webhook event: %s", exc)
+    if len(events) > MAX_EVENTS_PER_DELIVERY:
+        logger.warning("hubspot webhook rejected: %d events exceeds cap", len(events))
+        return {"statusCode": 413, "body": "too many events"}
 
+    enqueued = _send_sqs_batches(queue_url, events)
     logger.info("hubspot webhook accepted: enqueued=%d", enqueued)
     return {"statusCode": 200, "body": json.dumps({"enqueued": enqueued})}

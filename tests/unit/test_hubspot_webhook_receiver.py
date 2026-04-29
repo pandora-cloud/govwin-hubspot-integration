@@ -56,6 +56,7 @@ def mock_clients() -> tuple[MagicMock, MagicMock]:
         "SecretString": json.dumps({"client_secret": SECRET})
     }
     sqs = MagicMock()
+    sqs.send_message_batch.return_value = {"Successful": [{"Id": "0"}], "Failed": []}
     with patch.object(receiver, "_secrets_client", secrets), \
          patch.object(receiver, "_sqs_client", sqs), \
          patch.object(receiver, "_ensure_clients", lambda *_: None):
@@ -84,17 +85,21 @@ def _config_target_url(monkeypatch):
 
 def test_valid_signature_returns_200(mock_secrets, mock_sqs) -> None:
     body = json.dumps([{"objectId": 1, "subscriptionType": "deal.propertyChange"}])
+    mock_sqs.send_message_batch.return_value = {
+        "Successful": [{"Id": "0"}],
+        "Failed": [],
+    }
     headers = _signed_headers("POST", TARGET_URL, body.encode())
     response = receiver.handler(_api_event("POST", body, headers), context=None)
     assert response["statusCode"] == 200
-    assert mock_sqs.send_message.call_count == 1
+    assert mock_sqs.send_message_batch.call_count == 1
 
 
 def test_missing_signature_rejected(mock_secrets, mock_sqs) -> None:
     body = "[]"
     response = receiver.handler(_api_event("POST", body, {}), context=None)
     assert response["statusCode"] == 401
-    assert mock_sqs.send_message.call_count == 0
+    assert mock_sqs.send_message_batch.call_count == 0
 
 
 def test_signature_mismatch_rejected(mock_secrets, mock_sqs) -> None:
@@ -132,12 +137,67 @@ def test_invalid_json_body_rejected(mock_secrets, mock_sqs) -> None:
     assert response["statusCode"] == 400
 
 
-def test_multiple_events_enqueue_separately(mock_secrets, mock_sqs) -> None:
-    body = json.dumps([
-        {"objectId": 1, "subscriptionType": "deal.propertyChange"},
-        {"objectId": 2, "subscriptionType": "deal.propertyChange"},
-    ])
+def test_multiple_events_use_batch_send(mock_secrets, mock_sqs) -> None:
+    events = [
+        {"objectId": i, "subscriptionType": "deal.propertyChange"} for i in range(15)
+    ]
+    body = json.dumps(events)
+    mock_sqs.send_message_batch.side_effect = [
+        {"Successful": [{"Id": str(i)} for i in range(10)], "Failed": []},
+        {"Successful": [{"Id": str(i)} for i in range(5)], "Failed": []},
+    ]
     headers = _signed_headers("POST", TARGET_URL, body.encode())
     response = receiver.handler(_api_event("POST", body, headers), context=None)
     assert response["statusCode"] == 200
-    assert mock_sqs.send_message.call_count == 2
+    # 15 events should be sent in two batches of 10 + 5
+    assert mock_sqs.send_message_batch.call_count == 2
+
+
+def test_oversized_body_rejected(mock_secrets, mock_sqs) -> None:
+    body = json.dumps([{"x": "y" * (2 * 1024 * 1024)}])
+    headers = _signed_headers("POST", TARGET_URL, body.encode())
+    response = receiver.handler(_api_event("POST", body, headers), context=None)
+    assert response["statusCode"] == 413
+    assert mock_sqs.send_message_batch.call_count == 0
+
+
+def test_too_many_events_rejected(mock_secrets, mock_sqs) -> None:
+    events = [{"objectId": i, "subscriptionType": "x"} for i in range(101)]
+    body = json.dumps(events)
+    headers = _signed_headers("POST", TARGET_URL, body.encode())
+    response = receiver.handler(_api_event("POST", body, headers), context=None)
+    assert response["statusCode"] == 413
+
+
+def test_missing_target_url_rejected(mock_secrets, mock_sqs, monkeypatch) -> None:
+    monkeypatch.delenv("HUBSPOT_WEBHOOK_TARGET_URL")
+    body = "[]"
+    headers = _signed_headers("POST", TARGET_URL, body.encode())
+    response = receiver.handler(_api_event("POST", body, headers), context=None)
+    assert response["statusCode"] == 500
+
+
+def test_invalid_secret_json_rejected(mock_secrets, mock_sqs) -> None:
+    mock_secrets.get_secret_value.return_value = {"SecretString": "not-json"}
+    body = "[]"
+    headers = _signed_headers("POST", TARGET_URL, body.encode())
+    response = receiver.handler(_api_event("POST", body, headers), context=None)
+    assert response["statusCode"] == 500
+
+
+def test_secret_cache_refreshes_after_ttl(mock_secrets, mock_sqs) -> None:
+    body = "[]"
+    headers = _signed_headers("POST", TARGET_URL, body.encode())
+    receiver.handler(_api_event("POST", body, headers), context=None)
+    assert mock_secrets.get_secret_value.call_count == 1
+
+    # Second call within TTL: cache hit
+    headers2 = _signed_headers("POST", TARGET_URL, body.encode())
+    receiver.handler(_api_event("POST", body, headers2), context=None)
+    assert mock_secrets.get_secret_value.call_count == 1
+
+    # Expire cache and call again: must refetch
+    receiver._secret_cache["test/hubspot-webhook"] = (SECRET, time.time() - 600)
+    headers3 = _signed_headers("POST", TARGET_URL, body.encode())
+    receiver.handler(_api_event("POST", body, headers3), context=None)
+    assert mock_secrets.get_secret_value.call_count == 2

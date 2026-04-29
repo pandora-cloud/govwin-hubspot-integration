@@ -1,17 +1,18 @@
 """Submit a HubSpot deal to AWS Partner Central via the three-call flow.
 
-Triggered by SQS (events enqueued by ``hubspot_webhook_receiver``). For each
-event we:
+Triggered by SQS (events from ``hubspot_webhook_receiver``). For each event:
 
 1. Fetch the full HubSpot deal record.
-2. Reserve a ClientToken in DynamoDB (idempotent on retry).
+2. Atomically reserve a ClientToken in DynamoDB (idempotent on retry).
 3. Call ``CreateOpportunity`` -> persist ``Id`` + ``LastModifiedDate``.
 4. Call ``AssociateOpportunity`` with the configured Solution.
-5. Call ``StartEngagementFromOpportunityTask`` to submit.
+5. Call ``StartEngagementFromOpportunityTask`` to submit (with a
+   separately-reserved task ClientToken so retries reuse it).
 
-Steps 3-5 are idempotent on SQS redelivery: the DynamoDB ACE mapping is
-checked at each step so a partial failure resumes from the last successful
-step instead of starting over.
+The mapping is reloaded between steps and updated via merge semantics so a
+SQS redelivery resumes from the last persisted step. Permanent ACE errors
+(ValidationException, AccessDeniedException) are dropped from the SQS batch
+without retry; transient errors are reported as batch item failures.
 """
 
 from __future__ import annotations
@@ -27,6 +28,7 @@ from src.ace.mapper import (
     map_hubspot_deal_to_ace_create_payload,
     resolve_solution_id,
 )
+from src.ace.validators import is_valid_govwin_id, is_valid_hubspot_object_id
 from src.config import load_config
 from src.hubspot.client import HubSpotClient
 from src.sync.state import SyncStateManager
@@ -35,11 +37,16 @@ logger = logging.getLogger(__name__)
 logger.setLevel(os.environ.get("LOG_LEVEL", "INFO"))
 
 
-_TRIGGER_STAGES: set[str] = {
-    s.strip().lower()
-    for s in os.environ.get("ACE_TRIGGER_STAGES", "submit_to_aws,submitted_to_aws").split(",")
-    if s.strip()
+_PERMANENT_ERROR_CODES: set[str] = {
+    "ValidationException",
+    "AccessDeniedException",
+    "ResourceNotFoundException",
 }
+
+
+def _trigger_stages() -> set[str]:
+    raw = os.environ.get("ACE_TRIGGER_STAGES", "submit_to_aws,submitted_to_aws")
+    return {s.strip().lower() for s in raw.split(",") if s.strip()}
 
 
 def _is_submit_trigger(hs_event: dict[str, Any]) -> bool:
@@ -49,7 +56,7 @@ def _is_submit_trigger(hs_event: dict[str, Any]) -> bool:
     if hs_event.get("propertyName") != "dealstage":
         return False
     new_value = str(hs_event.get("propertyValue") or "").strip().lower()
-    return new_value in _TRIGGER_STAGES
+    return new_value in _trigger_stages()
 
 
 def _load_deal(hubspot: HubSpotClient, deal_id: str) -> dict[str, Any]:
@@ -82,29 +89,31 @@ def _process_event(
     hubspot: HubSpotClient,
 ) -> dict[str, Any]:
     deal_id = str(hs_event.get("objectId") or "")
-    if not deal_id:
-        return {"status": "skipped", "reason": "no objectId"}
+    if not is_valid_hubspot_object_id(deal_id):
+        return {"status": "skipped", "reason": "invalid objectId"}
     if not _is_submit_trigger(hs_event):
         return {"status": "skipped", "reason": "not a submit-to-aws stage change"}
 
     deal = _load_deal(hubspot, deal_id)
-    properties = deal.get("properties", deal)
+    properties = deal.get("properties") or deal
     govwin_id = properties.get("govwin_opp_id") or properties.get("govwin_iq_opp_id")
-    if not govwin_id:
-        return {"status": "skipped", "reason": "deal missing govwin_opp_id"}
+    if not govwin_id or not is_valid_govwin_id(str(govwin_id)):
+        return {"status": "skipped", "reason": "deal missing or invalid govwin_opp_id"}
+    govwin_id = str(govwin_id)
 
-    existing = state.get_ace_mapping(str(govwin_id)) or {}
-    ace_opportunity_id = existing.get("ace_opportunity_id") or ""
-    last_modified_date = existing.get("last_modified_date")
+    # Step 1: reserve ClientToken atomically.
+    create_token = state.reserve_client_token(govwin_id, ACEClient.new_client_token())
 
-    # Step 1: reserve ClientToken (idempotent on retry).
-    client_token = state.reserve_client_token(str(govwin_id), ACEClient.new_client_token())
+    # Reload the mapping so we operate on the post-reservation snapshot.
+    mapping = state.get_ace_mapping(govwin_id) or {}
+    ace_opportunity_id = mapping.get("ace_opportunity_id") or ""
+    last_modified_date = mapping.get("last_modified_date")
 
     # Step 2: CreateOpportunity if we don't already have an Id.
     if not ace_opportunity_id:
         try:
             payload = map_hubspot_deal_to_ace_create_payload(
-                deal, config, client_token=client_token
+                deal, config, client_token=create_token
             )
         except ACEMappingError as exc:
             logger.warning("ACE mapping failed for deal %s: %s", deal_id, exc)
@@ -113,22 +122,24 @@ def _process_event(
         response = ace.create_opportunity(payload)
         ace_opportunity_id = response["Id"]
         last_modified_date = response.get("LastModifiedDate")
-        state.set_ace_mapping(
-            govwin_id=str(govwin_id),
-            ace_opportunity_id=ace_opportunity_id,
+        state.update_ace_mapping(
+            govwin_id=govwin_id,
+            ace_opportunity_id=str(ace_opportunity_id),
             last_modified_date=str(last_modified_date) if last_modified_date else None,
-            client_token=client_token,
+            client_token=create_token,
             hubspot_deal_id=deal_id,
         )
         logger.info("ace.created opportunity_id=%s govwin_id=%s", ace_opportunity_id, govwin_id)
+        mapping = state.get_ace_mapping(govwin_id) or mapping
 
-    # Step 3: AssociateOpportunity (skip if already associated previously; AWS
-    # responds with ConflictException for duplicates which we treat as success).
-    if not existing.get("ace_engagement_invitation_id"):
+    # Step 3: AssociateOpportunity. Always called: a duplicate yields
+    # ConflictException which we treat as success, so the API itself is the
+    # authoritative dedup boundary.
+    if not mapping.get("ace_task_id"):
         try:
             solution_id = resolve_solution_id(deal, config)
             ace.associate_opportunity(
-                opportunity_identifier=ace_opportunity_id,
+                opportunity_identifier=str(ace_opportunity_id),
                 related_entity_identifier=solution_id,
                 related_entity_type="Solutions",
             )
@@ -136,22 +147,31 @@ def _process_event(
         except ACEAPIError as exc:
             if exc.code != "ConflictException":
                 raise
-            logger.info("ace.associate already exists; continuing")
+            # AWS does not return the existing associated solution from the
+            # error, so we cannot distinguish "same solution" from "different
+            # solution already associated." Log loudly so an operator notices
+            # if the deal's intended solution was changed between attempts.
+            logger.warning(
+                "ace.associate conflict on opp=%s solution=%s; existing "
+                "association assumed correct (verify if solution changed)",
+                ace_opportunity_id,
+                solution_id,
+            )
 
-    # Step 4: StartEngagementFromOpportunityTask.
-    if not existing.get("ace_task_id"):
-        task_token = ACEClient.new_client_token()
+    # Step 4: StartEngagementFromOpportunityTask. Reuse a persisted task token
+    # so that an SQS retry hits the same idempotency key on the AWS side.
+    if not mapping.get("ace_task_id"):
+        task_token = state.reserve_task_client_token(
+            govwin_id, ACEClient.new_client_token()
+        )
         task_response = ace.start_engagement_from_opportunity_task(
-            opportunity_identifier=ace_opportunity_id,
+            opportunity_identifier=str(ace_opportunity_id),
             client_token=task_token,
         )
-        state.set_ace_mapping(
-            govwin_id=str(govwin_id),
-            ace_opportunity_id=ace_opportunity_id,
-            last_modified_date=str(last_modified_date) if last_modified_date else None,
+        state.update_ace_mapping(
+            govwin_id=govwin_id,
             ace_engagement_invitation_id=task_response.get("EngagementInvitationId"),
             ace_task_id=task_response.get("TaskId"),
-            client_token=client_token,
             hubspot_deal_id=deal_id,
         )
         logger.info(
@@ -162,7 +182,7 @@ def _process_event(
 
     return {
         "status": "submitted",
-        "ace_opportunity_id": ace_opportunity_id,
+        "ace_opportunity_id": str(ace_opportunity_id),
         "govwin_id": govwin_id,
     }
 
@@ -182,7 +202,7 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
                 hs_event = json.loads(record.get("body", "{}"))
             except json.JSONDecodeError:
                 logger.warning("submit_to_ace: invalid JSON in message %s", message_id)
-                failures.append({"itemIdentifier": message_id})
+                # Permanent error: drop the message rather than retry.
                 continue
             try:
                 result = _process_event(
@@ -193,7 +213,21 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
                     hubspot=hubspot,
                 )
                 results.append(result)
-            except Exception:  # noqa: BLE001 -- DLQ via partial-batch failure
+            except ACEAPIError as exc:
+                if exc.code in _PERMANENT_ERROR_CODES:
+                    logger.warning(
+                        "submit_to_ace: permanent error %s for message %s; dropping",
+                        exc.code,
+                        message_id,
+                    )
+                    continue
+                logger.warning(
+                    "submit_to_ace: transient %s for message %s; retrying via SQS",
+                    exc.code,
+                    message_id,
+                )
+                failures.append({"itemIdentifier": message_id})
+            except Exception:  # noqa: BLE001 -- batch-failure path
                 logger.exception("submit_to_ace failed for message %s", message_id)
                 failures.append({"itemIdentifier": message_id})
 

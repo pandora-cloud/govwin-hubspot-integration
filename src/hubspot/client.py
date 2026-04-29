@@ -512,3 +512,37 @@ class HubSpotClient:
             "company_properties": len(COMPANY_PROPERTIES),
             "contact_properties": len(CONTACT_PROPERTIES),
         }
+
+    # -----------------------------------------------------------------------
+    # Webhook subscription management (developer-platform 2025.2+)
+    # -----------------------------------------------------------------------
+
+    def configure_webhook_settings(
+        self,
+        app_id: str,
+        target_url: str,
+        max_concurrent_requests: int = 10,
+    ) -> dict[str, Any]:
+        """Set the webhook delivery URL and throttling for a private app."""
+        return self._post(
+            f"webhooks/v3/{app_id}/settings",
+            {
+                "targetUrl": target_url,
+                "throttling": {
+                    "period": "SECONDLY",
+                    "maxConcurrentRequests": max_concurrent_requests,
+                },
+            },
+        )
+
+    def create_webhook_subscription(
+        self,
+        app_id: str,
+        subscription_details: dict[str, Any],
+        active: bool = True,
+    ) -> dict[str, Any]:
+        """Register a webhook subscription on a private app."""
+        return self._post(
+            f"webhooks/v3/{app_id}/subscriptions",
+            {"subscriptionDetails": subscription_details, "active": active},
+        )
