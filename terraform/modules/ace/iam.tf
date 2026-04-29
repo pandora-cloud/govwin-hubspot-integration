@@ -1,7 +1,15 @@
 # Additional IAM permissions added to the existing Lambda execution role
-# for the ACE submission path. The partnercentral:Catalog condition is the
-# safety net for non-prod environments: even if code accidentally passes
-# Catalog="AWS", the API rejects with AccessDeniedException.
+# for the ACE submission path.
+#
+# The partnercentral:Catalog condition is the cross-environment safety net:
+# Sandbox roles can only touch Sandbox; production roles can only touch AWS.
+# Even if code accidentally passes the wrong Catalog string, the API rejects
+# with AccessDeniedException.
+#
+# resources = ["*"] is unavoidable for partnercentral actions: the AWS
+# Partner Central Selling API does not support resource-level IAM (no
+# opportunity ARNs to scope to). The Catalog condition is the closest
+# equivalent and is enforced regardless of catalog choice.
 
 data "aws_iam_policy_document" "ace_permissions" {
   # AWS Partner Central Selling API.
@@ -21,14 +29,11 @@ data "aws_iam_policy_document" "ace_permissions" {
       "partnercentral:RejectEngagementInvitation",
       "partnercentral:GetAwsOpportunitySummary",
     ]
-    resources = ["*"]
-    dynamic "condition" {
-      for_each = var.ace_catalog == "Sandbox" ? [1] : []
-      content {
-        test     = "StringEquals"
-        variable = "partnercentral:Catalog"
-        values   = ["Sandbox"]
-      }
+    resources = ["*"] # see file header; mitigated by the Catalog condition below.
+    condition {
+      test     = "StringEquals"
+      variable = "partnercentral:Catalog"
+      values   = [var.ace_catalog]
     }
   }
 

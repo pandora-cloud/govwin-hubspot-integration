@@ -3,16 +3,30 @@
 # backend.tf is gitignored; each deployer provides their own.
 #
 # Prerequisites:
-#   - S3 bucket with versioning enabled
-#   - Terraform >= 1.11 (for use_lockfile native S3 locking)
+#   - S3 bucket created by terraform/bootstrap (see terraform/bootstrap/README.md)
+#   - Deployer IAM role created by terraform/bootstrap
+#   - Terraform >= 1.11 for native S3 locking (use_lockfile)
 
 terraform {
   backend "s3" {
-    bucket       = "your-terraform-state-bucket"
-    key          = "govwin-hubspot/terraform.tfstate"
-    region       = "us-east-1"
+    # Bucket name from `terraform output state_bucket_name` in the bootstrap.
+    bucket = "govwin-hubspot-prod-tfstate-XXXXXXXX"
+
+    key    = "govwin-hubspot/terraform.tfstate"
+    region = "us-east-1"
+
     encrypt      = true
-    use_lockfile = true
-    profile      = "default"
+    use_lockfile = true # native S3 lockfile, replaces DynamoDB lock table
+
+    # Local AWS profile used to source initial credentials. The role_arn below
+    # is then assumed for all backend operations, so this profile only needs
+    # sts:AssumeRole on the deployer role's ARN.
+    profile = "default"
+
+    # Deployer role ARN from `terraform output deployer_role_arn` in the
+    # bootstrap. The backend assumes this role so that state-bucket operations
+    # use the project-scoped role's permissions, not the operator's broader
+    # credentials.
+    role_arn = "arn:aws:iam::ACCOUNT_ID:role/govwin-hubspot-prod-deployer"
   }
 }

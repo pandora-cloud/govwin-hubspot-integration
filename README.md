@@ -84,8 +84,8 @@ For the full end-to-end ACE submission workflow, see the [ACE Integration Guide]
 
 - [ ] **Deltek GovWin IQ** subscription with WSAPI V3 access (Client ID, Client Secret, username, password)
 - [ ] **HubSpot** account (Professional or Enterprise) with a private-app token plus a separate developer-platform app for webhook delivery (created via `hs project create`, see [Deployment Guide](docs/deployment-guide.md))
-- [ ] **AWS Partner Central** account linked to AWS Marketplace Seller, with at least one Approved Solution registered (run `aws partnercentral-selling list-solutions --catalog AWS` to confirm)
-- [ ] **AWS** account with permissions for Lambda, API Gateway, Step Functions, DynamoDB, Secrets Manager, EventBridge, SNS, SQS, IAM, and CloudWatch (must be `us-east-1` for Partner Central)
+- [ ] **AWS Partner Central account** in good standing, with at least one **Approved Solution** registered (run `aws partnercentral-selling list-solutions --catalog AWS` to confirm). Marketplace seller linking is **not** required for this project.
+- [ ] **AWS account** in `us-east-1` (the Partner Central Selling API is region-locked). **No AWS administrator access is required at any step.** The project ships a `terraform/bootstrap/` module that creates a least-privilege deployer role; a one-time bootstrap operator runs that module with a scoped policy (`terraform/bootstrap/policies/bootstrap-operator.json`) and is deleted afterwards. See [SECURITY.md](SECURITY.md#iam-model) for the full IAM story.
 - [ ] **Terraform** >= 1.5 ([install guide](https://developer.hashicorp.com/terraform/tutorials/aws-get-started/install-cli))
 - [ ] **AWS CLI** configured with credentials (`aws configure`)
 - [ ] **Python** >= 3.12 for building the Lambda layer

@@ -168,6 +168,18 @@ variable "tags" {
   default     = {}
 }
 
+variable "deployer_role_arn" {
+  description = <<-EOT
+    ARN of the deployer IAM role created by terraform/bootstrap. When set,
+    the provider assumes this role for all resource operations, so the
+    terraform CLI session itself only needs sts:AssumeRole on the deployer
+    role's ARN. Leave empty to use the configured aws_profile directly
+    (e.g. during the bootstrap phase, or for ad-hoc local development).
+  EOT
+  type        = string
+  default     = ""
+}
+
 # -----------------------------------------------------------------------------
 # ACE (AWS Partner Central) configuration
 # -----------------------------------------------------------------------------
