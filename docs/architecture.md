@@ -2,13 +2,21 @@
 
 ## System Context
 
-This integration sits between two external APIs and orchestrates data flow on AWS.
-
-![Architecture Diagram](diagrams/architecture.svg)
-
-The pipeline flows from GovWin IQ through this integration into HubSpot CRM, and onward to AWS Partner Central via the integration's own AWS Partner Central Selling API client (the SaaSify ACE Connector is no longer required).
+This integration sits between three external APIs and orchestrates data flow on AWS. The pipeline runs end-to-end from GovWin IQ into HubSpot CRM and onward to AWS Partner Central via the integration's own Partner Central Selling API client. SaaSify is no longer required.
 
 ![Pipeline Overview](diagrams/pipeline-overview.svg)
+
+### v1: GovWin to HubSpot
+
+The hourly Step Function workflow that has been in production since 2026.
+
+![GovWin to HubSpot architecture](diagrams/architecture.svg)
+
+### v2: HubSpot to AWS Partner Central
+
+When a HubSpot deal moves to **Submit to AWS**, the webhook receiver enqueues the event onto SQS, the submit Lambda runs the three-call Selling-API flow, and EventBridge events from `aws.partnercentral-selling` flow back to update the HubSpot deal stage.
+
+![HubSpot to AWS Partner Central architecture](diagrams/architecture-v2-ace.svg)
 
 ## Step Function Workflow
 

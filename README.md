@@ -29,9 +29,9 @@ The sync runs incrementally and respects both GovWin's 4,000 calls/hour cap and 
 
 ### Under the hood
 
-![Architecture](docs/diagrams/architecture.svg)
-
 The GovWin to HubSpot half (existing v1):
+
+![GovWin to HubSpot architecture](docs/diagrams/architecture.svg)
 
 - **AWS Step Functions** orchestrates the multi-step sync; **EventBridge** fires it on a configurable schedule.
 - **AWS Lambda (x7)** for each step: authenticate, discover changes, fetch details, sync to HubSpot, update state, setup properties, error handling.
@@ -40,6 +40,8 @@ The GovWin to HubSpot half (existing v1):
 - **SNS** sends email notifications; **SQS** dead-letter queue captures failed operations.
 
 The HubSpot to AWS Partner Central half (new in v2):
+
+![HubSpot to AWS Partner Central architecture](docs/diagrams/architecture-v2-ace.svg)
 
 - **HubSpot developer-platform app** (private, static auth) registers webhook subscriptions for the deal properties we care about.
 - **API Gateway HTTP API** in front of a small Lambda receiver that validates `X-HubSpot-Signature-v3` and routes events into either the submit queue (deal-stage transitions) or the update queue (content-property changes).
@@ -95,7 +97,7 @@ For the full end-to-end ACE submission workflow, see the [ACE Integration Guide]
 ### 1. Clone the repository
 
 ```bash
-git clone https://gitlab.com/pandora-cloud/internal/govwin-hubspot-integration.git
+git clone https://github.com/pandora-cloud-llc/govwin-hubspot-integration.git
 cd govwin-hubspot-integration
 ```
 
