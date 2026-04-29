@@ -138,15 +138,28 @@ data "aws_iam_policy_document" "lambda_permissions" {
     ]
   }
 
-  # Secrets Manager
+  # Secrets Manager: read-only on credentials secrets.
   statement {
     actions = [
       "secretsmanager:GetSecretValue",
-      "secretsmanager:PutSecretValue",
     ]
     resources = [
       var.govwin_secret_arn,
       var.hubspot_secret_arn,
+      var.govwin_tokens_secret_arn,
+    ]
+  }
+
+  # Secrets Manager: PutSecretValue only on the OAuth-token cache, which is
+  # the only secret any Lambda writes back to (authenticate Lambda updates
+  # the cached access/refresh token after refresh). Splitting this out so
+  # govwin_secret_arn (long-lived credentials) and hubspot_secret_arn
+  # (Bearer token) are read-only from the Lambdas.
+  statement {
+    actions = [
+      "secretsmanager:PutSecretValue",
+    ]
+    resources = [
       var.govwin_tokens_secret_arn,
     ]
   }
@@ -194,10 +207,13 @@ data "archive_file" "source" {
   excludes = [
     "terraform", ".venv", ".git", "tests", "docs", "dist", "package",
     ".pytest_cache", ".ruff_cache", ".mypy_cache", ".claude",
+    "hubspot-app", ".github", "scripts",
     "lambda-layer.zip", ".gitignore", ".gitlab-ci.yml",
     "Makefile", "README.md", "CLAUDE.md", "LICENSE",
+    "CONTRIBUTING.md", "CODE_OF_CONDUCT.md", "SECURITY.md", "AGENTS.md",
     "pyproject.toml", "requirements.txt", "requirements-dev.txt",
     "uv.lock", ".python-version", "CHANGELOG.md",
+    "docker-compose.yml", "Dockerfile",
   ]
 }
 

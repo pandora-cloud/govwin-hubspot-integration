@@ -2,27 +2,79 @@
 
 Step-by-step instructions for deploying the GovWin-to-HubSpot integration on AWS.
 
-## Prerequisites Checklist
+## Prerequisites checklist
 
-- [ ] **Deltek GovWin IQ** subscription with WSAPI V3 access
-  - Client ID and Client Secret (from GovWin Admin UI)
-  - GovWin username (email) and password
-- [ ] **HubSpot** account (Professional or Enterprise tier)
-  - Private App created with scopes: `crm.objects.deals.read`, `crm.objects.deals.write`, `crm.objects.companies.read`, `crm.objects.companies.write`, `crm.objects.contacts.read`, `crm.objects.contacts.write`
-  - Private App access token
-- [ ] **AWS** account with administrator access (or specific IAM permissions for Lambda, Step Functions, DynamoDB, Secrets Manager, EventBridge, SNS, SQS, IAM, CloudWatch)
-- [ ] **Terraform** >= 1.5 installed ([install guide](https://developer.hashicorp.com/terraform/tutorials/aws-get-started/install-cli))
-- [ ] **AWS CLI** configured with credentials (`aws configure`)
-- [ ] (Optional) **Python** >= 3.12 for local development and testing
+### AWS-side (upstream of this project)
+
+These are AWS account-level prerequisites that this project does **not** automate. They depend on Pandora's relationship with AWS Partner Network and need to be in place before you deploy.
+
+- [ ] **AWS Partner Central account** in good standing. See the [AWS Partner Network onboarding guide](https://aws.amazon.com/partners/welcome/) for the broader registration flow.
+- [ ] **At least one Approved Solution** registered in Partner Central. Verify with:
+  ```
+  aws partnercentral-selling list-solutions --catalog AWS --region us-east-1 \
+    --query 'SolutionSummaries[?Status==`Active`].{Id:Id,Name:Name}'
+  ```
+  If this is empty, register a Solution in the Partner Central UI under **Sell -> My Solutions** before continuing. Approval typically takes 24-72 hours.
+- [ ] **AWS Marketplace seller linking** is **not required** for this project. We submit co-sell engagements via `partnercentral-selling`, which does not transact through Marketplace. Set this up only if you separately need Marketplace functionality.
+
+### Tooling on your machine
+
+- [ ] **Terraform** >= 1.11 (we use the native S3 lockfile, `use_lockfile = true`)
+- [ ] **AWS CLI** v2 configured
+- [ ] **Python** >= 3.12 for the Lambda layer build
+- [ ] **HubSpot CLI** for the developer-platform app: `npm install -g @hubspot/cli`
+
+### Credentials and accounts
+
+- [ ] **Deltek GovWin IQ** subscription with WSAPI V3 access (Client ID, Client Secret, username, password)
+- [ ] **HubSpot Professional or Enterprise** with two app-style integrations:
+  - **Existing private-app token** for REST API calls (`crm.objects.deals/companies/contacts.read+write`, schemas read+write)
+  - **New developer-platform app** (`hs project create`) for webhook delivery; you'll get an `appId` and `clientSecret` after `hs project upload` completes
+- [ ] **AWS account** with **two distinct IAM identities** (see [IAM model](#iam-model) below for details):
+  - A **bootstrap operator** identity, used once, with a small scoped policy ([`terraform/bootstrap/policies/bootstrap-operator.json`](../terraform/bootstrap/policies/bootstrap-operator.json))
+  - A **deployer identity** that day-to-day deployers use (with `sts:AssumeRole` on the project-scoped deployer role, created by the bootstrap)
+
+> **No identity in this project requires AWS administrator access.** The bootstrap-operator policy is ~30 IAM actions, all scoped to `arn:aws:s3:::govwin-hubspot-*-tfstate-*` and `arn:aws:iam::*:role/govwin-hubspot-*-deployer`. The deployer role's policy is the project's full deploy manifest, scoped to `${name_prefix}-*` resource ARNs.
+
+## IAM model
+
+This project follows the principle of least privilege. Three identities are involved, each with a documented and version-controlled policy:
+
+| Identity | Used by | When | Permissions |
+|---|---|---|---|
+| **Bootstrap operator** | Security team / one-time setup | Once per environment | `terraform/bootstrap/policies/bootstrap-operator.json` (S3 state bucket + deployer role creation only) |
+| **Deployer role** | `terraform apply` for the main module | Every deploy | Created by bootstrap; inline policies in `terraform/bootstrap/deployer_role.tf`. Scoped to `govwin-hubspot-${env}-*` resources. |
+| **Lambda execution role** | The deployed Lambdas at runtime | Continuous | Created by `terraform/modules/lambda` and `terraform/modules/ace`. Scoped to specific table / queue / secret ARNs and `partnercentral:Catalog: ${env}` condition. |
+
+The day-to-day deployer's personal IAM identity needs only `sts:AssumeRole` on the deployer role's ARN. CloudTrail records every assumption, so audit logs show "Alice assumed govwin-hubspot-prod-deployer at T1, applied 12 changes."
 
 ## Step 1: Clone the Repository
 
 ```bash
-git clone https://github.com/your-org/govwin-hubspot-integration.git
+git clone https://github.com/pandora-cloud-llc/govwin-hubspot-integration.git
 cd govwin-hubspot-integration
 ```
 
-## Step 1a: Prepare HubSpot
+## Step 1a: Run the bootstrap (one-time per environment)
+
+This creates the Terraform state bucket and the project's least-privilege deployer role. After this completes once, the security team deletes the bootstrap-operator credentials and all subsequent deploys go through `sts:AssumeRole`. See [`terraform/bootstrap/README.md`](../terraform/bootstrap/README.md) for the full workflow; the short version:
+
+1. Have your security team create a one-time IAM user with the policy in `terraform/bootstrap/policies/bootstrap-operator.json`. Generate access keys and hand them to the deployer.
+2. As the deployer, run:
+   ```bash
+   cd terraform/bootstrap
+   cp terraform.tfvars.example terraform.tfvars
+   # Edit terraform.tfvars: set deployer_principal_arns to the IAM users/roles
+   # that should be allowed to assume the deployer role for day-N applies.
+   AWS_PROFILE=govwin-hubspot-bootstrap terraform init
+   AWS_PROFILE=govwin-hubspot-bootstrap terraform apply
+   ```
+3. Capture the outputs (`state_bucket_name`, `deployer_role_arn`).
+4. Have the security team delete the bootstrap-operator user.
+
+You will not need the bootstrap operator again unless you change the list of `deployer_principal_arns` later.
+
+## Step 1b: Prepare HubSpot
 
 Before deploying, the integration expects an existing pipeline named **"Government"** in HubSpot. The integration does not create a pipeline (HubSpot Professional accounts are limited to two custom pipelines, so creating one for every deployer is unsafe).
 
@@ -134,7 +186,33 @@ curl -X POST https://services.govwin.com/neo-ws/oauth/token \
 
 A successful response returns an `access_token` and `refresh_token`.
 
-## Step 4: Configure Terraform Variables
+## Step 4: Configure the main module
+
+### 4a. Wire the bootstrap outputs into the backend
+
+Copy the example backend file and fill in the values from `terraform output` in the bootstrap directory:
+
+```bash
+cp terraform/backend.tf.example terraform/backend.tf
+```
+
+Edit `terraform/backend.tf`:
+
+```hcl
+terraform {
+  backend "s3" {
+    bucket   = "govwin-hubspot-prod-tfstate-XXXXXXXX"     # from bootstrap output
+    key      = "govwin-hubspot/terraform.tfstate"
+    region   = "us-east-1"
+    encrypt  = true
+    use_lockfile = true
+    profile  = "default"                                   # local profile with sts:AssumeRole on the deployer role
+    role_arn = "arn:aws:iam::ACCOUNT:role/govwin-hubspot-prod-deployer"  # from bootstrap output
+  }
+}
+```
+
+### 4b. Set the variable values
 
 ```bash
 cp terraform/terraform.tfvars.example terraform/terraform.tfvars
@@ -143,23 +221,31 @@ cp terraform/terraform.tfvars.example terraform/terraform.tfvars
 Edit `terraform/terraform.tfvars`:
 
 ```hcl
-# Required - GovWin Credentials
+# Required - tells the provider which role to assume for resource operations
+deployer_role_arn = "arn:aws:iam::ACCOUNT:role/govwin-hubspot-prod-deployer"
+
+# Required - GovWin credentials
 govwin_client_id     = "your-client-id"
 govwin_client_secret = "your-client-secret"
 govwin_username      = "your-email@company.com"
 govwin_password      = "your-password"
 
-# Required - HubSpot Credentials
+# Required - HubSpot credentials (existing private-app token)
 hubspot_private_app_token = "pat-na1-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
 
-# Optional - Customize
+# Required for v2 (HubSpot to AWS Partner Central submission)
+ace_default_solution_id       = "S-0051246"          # from `aws partnercentral-selling list-solutions`
+hubspot_webhook_app_id        = "12345678"           # from `hs project upload`
+hubspot_webhook_client_secret = "<from HubSpot dev portal>"
+
+# Optional - keep defaults unless you need to override
+ace_catalog        = "Sandbox"                        # flip to "AWS" only after sandbox smoke passes
 aws_region         = "us-east-1"
 sync_schedule      = "rate(4 hours)"
 notification_email = "alerts@company.com"
-govwin_opp_types   = "ALL"
 ```
 
-> **Security**: `terraform.tfvars` is in `.gitignore` and will never be committed.
+> **Security:** `terraform.tfvars` and `terraform/backend.tf` are both in `.gitignore` and will never be committed.
 
 ## Step 5: Build the Lambda Layer
 

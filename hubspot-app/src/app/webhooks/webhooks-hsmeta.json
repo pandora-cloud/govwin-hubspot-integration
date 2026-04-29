@@ -3,7 +3,7 @@
   "type": "webhooks",
   "config": {
     "settings": {
-      "targetUrl": "https://REPLACE_WITH_API_GATEWAY_URL/hubspot",
+      "targetUrl": "https://www.example.com/hubspot",
       "maxConcurrentRequests": 10
     },
     "subscriptions": {
