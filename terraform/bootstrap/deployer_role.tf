@@ -27,12 +27,12 @@ resource "aws_iam_role" "deployer" {
           AWS = var.deployer_principal_arns
         }
         Action = "sts:AssumeRole"
-        Condition = {
-          # Require MFA when assuming the deployer role for human deployments.
-          # Service-linked principals (e.g. CI roles) can bypass via
-          # session tokens; document this in the README.
+        Condition = var.require_mfa_to_assume_deployer ? {
+          # Compliance posture: require MFA on the assume call. Day-N
+          # deployers must use an MFA-stamped session
+          # (aws sts get-session-token or an MFA-aware AWS profile).
           Bool = { "aws:MultiFactorAuthPresent" = "true" }
-        }
+        } : {}
       },
     ]
   })
@@ -126,12 +126,11 @@ resource "aws_iam_role_policy" "deployer_lambda" {
         Resource = "arn:aws:lambda:${local.region}:${local.account_id}:layer:${local.project_glob}"
       },
       {
-        Sid    = "LogsGroups"
+        Sid    = "LogsGroupsScoped"
         Effect = "Allow"
         Action = [
           "logs:CreateLogGroup",
           "logs:DeleteLogGroup",
-          "logs:DescribeLogGroups",
           "logs:PutRetentionPolicy",
           "logs:DeleteRetentionPolicy",
           "logs:TagResource",
@@ -139,6 +138,22 @@ resource "aws_iam_role_policy" "deployer_lambda" {
           "logs:ListTagsForResource",
         ]
         Resource = "arn:aws:logs:${local.region}:${local.account_id}:log-group:/aws/lambda/${local.project_glob}*"
+      },
+      {
+        # logs:DescribeLogGroups is a list-style API that does not support
+        # resource-level filtering on the call itself. AWS evaluates the
+        # action against arn:aws:logs:region:account:log-group::log-stream:
+        # (the wildcard form). We allow it broadly but only in the project's
+        # region; the deployer cannot describe log groups outside us-east-1.
+        Sid    = "LogsDescribeRegion"
+        Effect = "Allow"
+        Action = ["logs:DescribeLogGroups"]
+        Resource = "*"
+        Condition = {
+          StringEquals = {
+            "aws:RequestedRegion" = local.region
+          }
+        }
       },
     ]
   })
@@ -359,6 +374,7 @@ resource "aws_iam_role_policy" "deployer_states" {
           "states:DeleteStateMachine",
           "states:DescribeStateMachine",
           "states:UpdateStateMachine",
+          "states:ListStateMachineVersions",
           "states:ListTagsForResource",
           "states:TagResource",
           "states:UntagResource",
