@@ -87,6 +87,18 @@ def _config_target_url(monkeypatch):
     )
 
 
+@pytest.fixture(autouse=True)
+def _stub_state_replay_check(monkeypatch):
+    """The receiver consults SyncStateManager.reserve_webhook_signature to
+    detect replays. Tests don't need real DynamoDB; default to "first sighting"
+    so signed requests proceed. The dedicated replay test overrides this.
+    """
+    state = MagicMock()
+    state.reserve_webhook_signature.return_value = True
+    monkeypatch.setattr(receiver, "SyncStateManager", lambda *_a, **_kw: state)
+    return state
+
+
 def test_valid_signature_returns_200(mock_secrets, mock_sqs) -> None:
     body = json.dumps([{
         "objectId": 1,
@@ -257,3 +269,27 @@ def test_secret_cache_refreshes_after_ttl(mock_secrets, mock_sqs) -> None:
     headers3 = _signed_headers("POST", TARGET_URL, body.encode())
     receiver.handler(_api_event("POST", body, headers3), context=None)
     assert mock_secrets.get_secret_value.call_count == 2
+
+
+def test_replay_within_window_returns_409(
+    mock_secrets, mock_sqs, _stub_state_replay_check
+) -> None:
+    """A replayed signature within the 2x max-age window is rejected with 409,
+    even though the signature itself is still cryptographically valid.
+    """
+    body = json.dumps(
+        [{"objectId": 1, "subscriptionType": "object.propertyChange",
+          "propertyName": "dealstage", "propertyValue": "submit_to_aws"}]
+    )
+    headers = _signed_headers("POST", TARGET_URL, body.encode())
+
+    # First delivery: state returns True (first sighting). Receiver accepts.
+    _stub_state_replay_check.reserve_webhook_signature.return_value = True
+    response = receiver.handler(_api_event("POST", body, headers), context=None)
+    assert response["statusCode"] == 200
+
+    # Replay: state returns False (already seen). Receiver must reject.
+    _stub_state_replay_check.reserve_webhook_signature.return_value = False
+    response = receiver.handler(_api_event("POST", body, headers), context=None)
+    assert response["statusCode"] == 409
+    assert "replay" in response["body"]

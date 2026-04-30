@@ -16,13 +16,38 @@ locals {
 resource "aws_iam_role" "deployer" {
   name        = "${local.name_prefix}-deployer"
   description = "Assumed by day-to-day terraform apply runs for the ${local.name_prefix} stack"
-  tags        = local.base_tags
+  # When the no-MFA override is active, tag the role so audit tooling
+  # (AWS Config, CloudTrail Lake queries, security-team dashboards) can
+  # surface accounts left in this state without having to read tfvars.
+  # AWS IAM tag values are limited to [\p{L}\p{Z}\p{N}_.:/=+\-@]*; sanitize
+  # the free-text justification before tagging. The original (unsanitized)
+  # justification is preserved in the role description below for auditors
+  # who need the verbatim text.
+  tags = merge(
+    local.base_tags,
+    var.acknowledge_no_mfa_for_sandbox_only ? {
+      "compliance:RiskMode"             = "sandbox-no-mfa"
+      "compliance:NoMFAExceptionExpiry" = var.acknowledge_no_mfa_expires_at
+      "compliance:NoMFAJustification" = substr(
+        replace(
+          replace(
+            replace(var.acknowledge_no_mfa_justification, ";", " "),
+            ",", " "
+          ),
+          "'", ""
+        ),
+        0, 256,
+      )
+    } : {},
+  )
 
   lifecycle {
     # Production environments must require MFA on assume. The require_mfa
     # variable can be set to false ONLY for non-prod (sandbox/dev/test), or
     # for an explicitly-acknowledged sandbox-only window via the
-    # acknowledge_no_mfa_for_sandbox_only escape hatch.
+    # acknowledge_no_mfa_for_sandbox_only escape hatch. The escape hatch
+    # additionally requires a non-empty justification and a future-dated
+    # expiry so the override is bounded in time and auditable.
     precondition {
       condition = !(
         var.environment == "prod"
@@ -30,6 +55,28 @@ resource "aws_iam_role" "deployer" {
         && var.acknowledge_no_mfa_for_sandbox_only == false
       )
       error_message = "require_mfa_to_assume_deployer must be true when environment == prod (or set acknowledge_no_mfa_for_sandbox_only = true for a sandbox-only window)."
+    }
+    precondition {
+      condition = !(
+        var.acknowledge_no_mfa_for_sandbox_only == true
+        && length(var.acknowledge_no_mfa_justification) < 20
+      )
+      error_message = "acknowledge_no_mfa_for_sandbox_only requires acknowledge_no_mfa_justification (>= 20 characters) explaining why MFA is being disabled."
+    }
+    precondition {
+      condition = !(
+        var.acknowledge_no_mfa_for_sandbox_only == true
+        && var.acknowledge_no_mfa_expires_at == ""
+      )
+      error_message = "acknowledge_no_mfa_for_sandbox_only requires acknowledge_no_mfa_expires_at (ISO-8601 YYYY-MM-DD) so the override is time-boxed."
+    }
+    precondition {
+      condition = !(
+        var.acknowledge_no_mfa_for_sandbox_only == true
+        && var.acknowledge_no_mfa_expires_at != ""
+        && timecmp(timeadd(timestamp(), "0s"), "${var.acknowledge_no_mfa_expires_at}T00:00:00Z") >= 0
+      )
+      error_message = "The no-MFA override (acknowledge_no_mfa_expires_at) has expired. Re-enable MFA, or bump the expiry with a renewed justification."
     }
   }
 

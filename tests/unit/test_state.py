@@ -18,15 +18,32 @@ class TestSyncCursor:
         assert state_manager.get_last_sync_timestamp() is None
 
     def test_set_and_get_cursor(self, state_manager: SyncStateManager):
-        state_manager.set_last_sync_timestamp("03/20/2025 14:30:00")
+        # WSAPI oppSelectionDateFrom requires MM/DD/YYYY exactly.
+        state_manager.set_last_sync_timestamp("03/20/2025")
         result = state_manager.get_last_sync_timestamp()
-        assert result == "03/20/2025 14:30:00"
+        assert result == "03/20/2025"
 
     def test_update_cursor(self, state_manager: SyncStateManager):
-        state_manager.set_last_sync_timestamp("03/20/2025 14:30:00")
-        state_manager.set_last_sync_timestamp("03/21/2025 10:00:00")
+        state_manager.set_last_sync_timestamp("03/20/2025")
+        state_manager.set_last_sync_timestamp("03/21/2025")
         result = state_manager.get_last_sync_timestamp()
-        assert result == "03/21/2025 10:00:00"
+        assert result == "03/21/2025"
+
+    def test_set_cursor_default_now(self, state_manager: SyncStateManager):
+        import re
+
+        state_manager.set_last_sync_timestamp()
+        result = state_manager.get_last_sync_timestamp()
+        assert result is not None and re.fullmatch(r"\d{2}/\d{2}/\d{4}", result)
+
+    def test_set_cursor_rejects_non_wsapi_format(self, state_manager: SyncStateManager):
+        import pytest
+
+        # ISO-8601 would silently break discovery; assertion must catch it.
+        with pytest.raises(ValueError):
+            state_manager.set_last_sync_timestamp("2025-03-20T14:30:00Z")
+        with pytest.raises(ValueError):
+            state_manager.set_last_sync_timestamp("03/20/2025 14:30:00")
 
 
 class TestOpportunityState:
@@ -120,3 +137,21 @@ class TestTTLBehavior:
         item = response["Item"]
 
         assert "ttl" not in item
+
+
+class TestWebhookReplayProtection:
+    def test_reserve_first_call_returns_true(self, state_manager: SyncStateManager):
+        assert state_manager.reserve_webhook_signature("fingerprint-abc") is True
+
+    def test_reserve_replay_returns_false(self, state_manager: SyncStateManager):
+        assert state_manager.reserve_webhook_signature("fingerprint-xyz") is True
+        # Second sighting of the same fingerprint within the TTL window:
+        # caller must reject.
+        assert state_manager.reserve_webhook_signature("fingerprint-xyz") is False
+
+    def test_reserve_distinct_fingerprints_independent(
+        self, state_manager: SyncStateManager
+    ):
+        assert state_manager.reserve_webhook_signature("fp1") is True
+        assert state_manager.reserve_webhook_signature("fp2") is True
+        assert state_manager.reserve_webhook_signature("fp1") is False

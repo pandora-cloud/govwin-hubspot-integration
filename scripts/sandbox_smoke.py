@@ -1,7 +1,7 @@
 """Sandbox smoke matrix for the AWS Partner Central submission half (Phase 4.1).
 
-Runs scenarios 1-5 and 10 from docs/testing.md against a real Sandbox catalog
-in Pandora's AWS account. Cleans up the sandbox opportunities at the end.
+Runs scenarios 1-10 from docs/testing.md against a real Sandbox catalog in
+Pandora's AWS account. Cleans up sandbox opportunities at the end.
 
 Scenarios:
   1. CreateOpportunity (with OtherSolutionDescription so the opp is valid even
@@ -10,18 +10,29 @@ Scenarios:
        a) If --solution-id (or ACE_DEFAULT_SOLUTION_ID) names an Approved
           Sandbox Solution, associate that Solution.
        b) Otherwise, associate an AwsProduct (--aws-product, default
-          "Amazon EC2"). Per the AWS partner-crm-integration-samples repo,
-          AwsProducts are the recommended Sandbox associatable when the
-          partner has no registered Solution. See:
+          "AmazonEC2Linux"). Per the AWS partner-crm-integration-samples
+          repo, AwsProducts are the recommended Sandbox associatable when
+          the partner has no registered Solution. See:
           https://github.com/aws-samples/partner-crm-integration-samples
        c) --skip-associate forces no association at all (relies purely on
           the OtherSolutionDescription field).
   3. StartEngagementFromOpportunityTask
   4. UpdateOpportunity with optimistic locking (positive)
   5. UpdateOpportunity with stale lock (negative -> ConflictException recovery)
- 10. HubSpot webhook signature validation (negative: forged signature -> 401)
+  6. EventBridge "Opportunity Updated" -> handle_ace_event (synthetic invoke).
+     Validates the receiver Lambda's wiring without depending on AWS to
+     publish a real event.
+  7. EventBridge "Engagement Invitation Accepted" -> handle_ace_event
+     (synthetic invoke).
+  8. EventBridge "Engagement Invitation Rejected" -> handle_ace_event
+     (synthetic invoke).
+  9. HubSpot webhook signature validation (positive: real HMAC -> 200).
+     Requires --webhook-secret-name (or AWS-side default
+     govwin-hubspot-prod/hubspot-webhook).
+ 10. HubSpot webhook signature validation (negative: forged signature -> 401).
 
-The remaining scenarios (6-9, 11) are manual; see docs/phase4-runbook.md.
+Scenario 11 (full GovWin -> HubSpot -> ACE) is manual; see
+docs/phase4-runbook.md.
 
 Note on Sandbox Solutions:
   AWS docs claim a default Sandbox solution `S-1234567` exists, but newly
@@ -311,6 +322,175 @@ def scenario_5_stale_lock(client: Any, opp_id: str, stale_lmd: str) -> None:
     _ok("recovered", "refetch + retry succeeded")
 
 
+def _synth_event(detail_type: str, detail: dict[str, Any]) -> dict[str, Any]:
+    """Shape an EventBridge event the way AWS would deliver it to a Lambda
+    target. The Lambda only reads top-level id / detail-type / source /
+    detail; nothing in the receiver inspects the EventBridge envelope, so a
+    synthetic event is indistinguishable from a real one for handler logic.
+    """
+    return {
+        "version": "0",
+        "id": str(uuid.uuid4()),
+        "detail-type": detail_type,
+        "source": "aws.partnercentral-selling",
+        "account": "555049241846",
+        "region": REGION,
+        "time": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "resources": [],
+        "detail": detail,
+    }
+
+
+def _invoke_handler(
+    function_name: str, payload: dict[str, Any]
+) -> dict[str, Any]:
+    lam = boto3.client("lambda", region_name=REGION)
+    response = lam.invoke(
+        FunctionName=function_name,
+        InvocationType="RequestResponse",
+        Payload=json.dumps(payload).encode("utf-8"),
+    )
+    body = response["Payload"].read().decode("utf-8")
+    if response.get("FunctionError"):
+        raise RuntimeError(f"{function_name} returned error: {body}")
+    try:
+        return json.loads(body)
+    except json.JSONDecodeError:
+        return {"raw": body}
+
+
+def scenario_6_opportunity_updated(handler_fn: str, opp_id: str) -> None:
+    print("Scenario 6: EventBridge Opportunity Updated -> handle_ace_event")
+    if not handler_fn:
+        print("  [SKIP] no --handle-ace-event-fn provided")
+        return
+    event = _synth_event(
+        "Opportunity Updated",
+        {
+            "catalog": CATALOG,
+            "opportunity": {"identifier": opp_id},
+        },
+    )
+    result = _invoke_handler(handler_fn, event)
+    # Status will typically be "skipped" for a synthetic-but-valid opp that
+    # has no associated HubSpot deal; what we are validating is that the
+    # Lambda did NOT crash and returned a well-formed status.
+    status = result.get("status")
+    if status not in {"updated", "skipped", "duplicate", "no-op", "logged"}:
+        raise RuntimeError(f"unexpected handler result: {result}")
+    _ok("handle_ace_event responded", f"status={status}")
+
+
+def scenario_7_invitation_accepted(handler_fn: str) -> None:
+    print("Scenario 7: EventBridge Engagement Invitation Accepted")
+    if not handler_fn:
+        print("  [SKIP] no --handle-ace-event-fn provided")
+        return
+    event = _synth_event(
+        "Engagement Invitation Accepted",
+        {
+            "catalog": CATALOG,
+            "engagementInvitation": {
+                "id": (
+                    "arn:aws:partnercentral:::catalog/Sandbox/"
+                    f"engagement-invitation/synthetic-{uuid.uuid4().hex[:8]}"
+                )
+            },
+        },
+    )
+    result = _invoke_handler(handler_fn, event)
+    status = result.get("status")
+    if status not in {"updated", "skipped", "duplicate", "logged"}:
+        raise RuntimeError(f"unexpected handler result: {result}")
+    _ok("handle_ace_event responded", f"status={status}")
+
+
+def scenario_8_invitation_rejected(handler_fn: str) -> None:
+    print("Scenario 8: EventBridge Engagement Invitation Rejected")
+    if not handler_fn:
+        print("  [SKIP] no --handle-ace-event-fn provided")
+        return
+    event = _synth_event(
+        "Engagement Invitation Rejected",
+        {
+            "catalog": CATALOG,
+            "engagementInvitation": {
+                "id": (
+                    "arn:aws:partnercentral:::catalog/Sandbox/"
+                    f"engagement-invitation/synthetic-{uuid.uuid4().hex[:8]}"
+                )
+            },
+        },
+    )
+    result = _invoke_handler(handler_fn, event)
+    status = result.get("status")
+    if status not in {"updated", "skipped", "duplicate", "logged"}:
+        raise RuntimeError(f"unexpected handler result: {result}")
+    _ok("handle_ace_event responded", f"status={status}")
+
+
+def _fetch_signing_secret(secret_name: str) -> str:
+    sm = boto3.client("secretsmanager", region_name=REGION)
+    response = sm.get_secret_value(SecretId=secret_name)
+    raw = response.get("SecretString", "")
+    parsed = json.loads(raw)
+    secret = parsed.get("client_secret") or parsed.get("clientSecret")
+    if not isinstance(secret, str) or not secret:
+        raise RuntimeError(f"secret {secret_name} missing client_secret")
+    return secret
+
+
+def scenario_9_webhook_positive(api_url: str, secret_name: str) -> None:
+    """Sign a synthetic HubSpot webhook with the real client_secret and
+    confirm the receiver returns 200. The body is intentionally a single
+    'object.propertyChange' event for an unknown property so the receiver
+    accepts the signature, classifies the event as 'drop', and returns
+    {"submit": 0, "update": 0, "dropped": 1}. Avoids enqueueing anything
+    on the live submit/update queues.
+    """
+    print("Scenario 9: HubSpot webhook signature validation (positive)")
+    if not api_url or not secret_name:
+        print("  [SKIP] needs --api-url and --webhook-secret-name")
+        return
+    import base64
+    import hashlib
+    import hmac
+
+    secret = _fetch_signing_secret(secret_name)
+    body = json.dumps(
+        [
+            {
+                "eventId": int(time.time()),
+                "subscriptionType": "object.propertyChange",
+                "objectId": 999999999,
+                "propertyName": "_sandbox_smoke_unknown",
+                "propertyValue": "ignored",
+                "occurredAt": int(time.time() * 1000),
+            }
+        ]
+    )
+    timestamp = str(int(time.time() * 1000))
+    raw = ("POST" + api_url + body + timestamp).encode("utf-8")
+    digest = hmac.new(secret.encode("utf-8"), raw, hashlib.sha256).digest()
+    signature = base64.b64encode(digest).decode("ascii")
+    headers = {
+        "x-hubspot-signature-v3": signature,
+        "x-hubspot-request-timestamp": timestamp,
+        "content-type": "application/json",
+    }
+    response = httpx.post(api_url, content=body, headers=headers, timeout=10.0)
+    if response.status_code != 200:
+        raise RuntimeError(
+            f"expected 200 for valid signature, got {response.status_code}: "
+            f"{response.text[:200]}"
+        )
+    payload = response.json()
+    # Unknown property name -> classify_property_change returns 'drop'.
+    if payload.get("dropped") != 1:
+        raise RuntimeError(f"expected dropped=1, got {payload}")
+    _ok("valid signature accepted", f"dropped={payload['dropped']} (unknown property)")
+
+
 def scenario_10_forged_signature(api_url: str) -> None:
     print("Scenario 10: HubSpot webhook signature validation (negative)")
     if not api_url:
@@ -396,7 +576,25 @@ def main() -> int:
     parser.add_argument(
         "--api-url",
         default=os.environ.get("HUBSPOT_WEBHOOK_TARGET_URL", ""),
-        help="HubSpot webhook receiver URL (for scenario 10)",
+        help="HubSpot webhook receiver URL (for scenarios 9 and 10)",
+    )
+    parser.add_argument(
+        "--handle-ace-event-fn",
+        default=os.environ.get("HANDLE_ACE_EVENT_FUNCTION", ""),
+        help=(
+            "Lambda function name for handle_ace_event (e.g. "
+            "govwin-hubspot-prod-handle-ace-event). When set, scenarios 6-8 "
+            "fire synthetic EventBridge payloads at this Lambda directly."
+        ),
+    )
+    parser.add_argument(
+        "--webhook-secret-name",
+        default=os.environ.get("HUBSPOT_WEBHOOK_SECRET_NAME", ""),
+        help=(
+            "Secrets Manager name for the HubSpot webhook signing secret "
+            "(e.g. govwin-hubspot-prod/hubspot-webhook). Required for "
+            "scenario 9 (positive signature)."
+        ),
     )
     parser.add_argument(
         "--skip-associate",
@@ -446,6 +644,10 @@ def main() -> int:
         scenario_4_update_with_optimistic_lock(client, update_opp_id)
         # scenario 5 uses the original (now stale) LMD to force a conflict.
         scenario_5_stale_lock(client, update_opp_id, update_lmd)
+        scenario_6_opportunity_updated(args.handle_ace_event_fn, update_opp_id)
+        scenario_7_invitation_accepted(args.handle_ace_event_fn)
+        scenario_8_invitation_rejected(args.handle_ace_event_fn)
+        scenario_9_webhook_positive(args.api_url, args.webhook_secret_name)
         scenario_10_forged_signature(args.api_url)
         if not args.keep:
             cleanup(client, opp_id)

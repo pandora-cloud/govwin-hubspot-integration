@@ -46,9 +46,20 @@ class SyncStateManager:
             return None
 
     def set_last_sync_timestamp(self, timestamp: str | None = None) -> None:
-        """Set the last successful sync timestamp."""
+        """Set the last successful sync timestamp.
+
+        The cursor is consumed by ``govwin_orchestrator`` via the GovWin WSAPI
+        ``oppSelectionDateFrom`` parameter, which only accepts ``MM/DD/YYYY``.
+        Storing any other format silently breaks the next discovery pass: the
+        WSAPI returns 400 / zero results and the orchestrator stops finding
+        anything to sync. Pin the format here so that constraint cannot drift
+        based on which caller wrote the row.
+        """
         if timestamp is None:
-            timestamp = datetime.now(UTC).isoformat()
+            timestamp = datetime.now(UTC).strftime("%m/%d/%Y")
+        else:
+            # Validate the caller's input matches the WSAPI contract.
+            datetime.strptime(timestamp, "%m/%d/%Y")
 
         self._state_table.put_item(
             Item={
@@ -399,6 +410,41 @@ class SyncStateManager:
             self._mappings_table.put_item(
                 Item={
                     "pk": f"EVT#{event_id}",
+                    "sk": "SEEN",
+                    "seen_at": datetime.now(UTC).isoformat(),
+                    "ttl": int(time.time()) + ttl_seconds,
+                },
+                ConditionExpression="attribute_not_exists(pk)",
+            )
+            return True
+        except ClientError as exc:
+            code = exc.response.get("Error", {}).get("Code", "")
+            if code == "ConditionalCheckFailedException":
+                return False
+            raise
+
+    def reserve_webhook_signature(
+        self, signature_fingerprint: str, ttl_seconds: int = 600
+    ) -> bool:
+        """Atomically reserve a webhook signature to defeat replay attacks.
+
+        Returns True on first sighting (caller should accept the delivery)
+        and False if the same signature has been seen within the TTL window
+        (caller should reject the request as a replay).
+
+        ``signature_fingerprint`` is expected to be a hash of the X-HubSpot-
+        Signature-v3 header (do NOT pass the raw signature, since it has
+        the same length and entropy as the secret-derived MAC and might leak
+        through logs). 32-byte SHA-256 hex is appropriate.
+
+        The TTL must be >= the receiver's accepted signature age window so
+        that replays inside the window are caught even if the original
+        delivery has already been processed.
+        """
+        try:
+            self._mappings_table.put_item(
+                Item={
+                    "pk": f"WHK#{signature_fingerprint}",
                     "sk": "SEEN",
                     "seen_at": datetime.now(UTC).isoformat(),
                     "ttl": int(time.time()) + ttl_seconds,

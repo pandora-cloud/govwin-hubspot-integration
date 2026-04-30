@@ -352,6 +352,7 @@ docs/
 - [Field Mapping Reference](docs/field-mapping.md) - All 38 mapped properties, NAICS-to-industry codes, pipeline stages, associations
 - [Deployment Guide](docs/deployment-guide.md) - Full deployment walkthrough, credential setup, troubleshooting
 - [ACE Integration Guide](docs/ace-integration.md) - End-to-end workflow for submitting deals to AWS Partner Central
+- [Testing in your AWS account](docs/testing-in-your-account.md) - Step-by-step sandbox bring-up, the 11-scenario smoke matrix, MFA / Sandbox-Solution gotchas, and the criteria for flipping to the AWS catalog
 - [Testing Guide](docs/testing.md) - Unit tests, validation scripts, LocalStack setup, production test results
 
 ## Security

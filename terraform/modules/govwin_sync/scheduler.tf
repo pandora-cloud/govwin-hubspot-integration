@@ -21,6 +21,12 @@ data "aws_iam_policy_document" "scheduler_invoke" {
     actions   = ["lambda:InvokeFunction"]
     resources = [aws_lambda_function.orchestrator.arn]
   }
+  # Scheduler needs to send to the DLQ when an invocation fails after
+  # exhausting retries. Without this, missed ticks are silent.
+  statement {
+    actions   = ["sqs:SendMessage"]
+    resources = [aws_sqs_queue.sync_dlq.arn]
+  }
 }
 
 resource "aws_iam_role_policy" "scheduler" {
@@ -47,6 +53,13 @@ resource "aws_scheduler_schedule" "sync" {
     retry_policy {
       maximum_event_age_in_seconds = 3600
       maximum_retry_attempts       = 0 # The orchestrator runs again on the next tick anyway.
+    }
+
+    # Capture missed invocations (e.g. concurrency throttle when the
+    # orchestrator's reservedConcurrency=1 collides with a long-running
+    # discovery cycle). Without this, a skipped tick is invisible.
+    dead_letter_config {
+      arn = aws_sqs_queue.sync_dlq.arn
     }
   }
 }
