@@ -171,6 +171,18 @@ data "aws_iam_policy_document" "lambda_permissions" {
     actions   = ["sqs:SendMessage"]
     resources = [var.dlq_arn]
   }
+
+  # X-Ray. Both actions are list-style and do not support resource-level
+  # filtering on the call; AWS requires "*". They only let the caller emit
+  # trace data attributed to its own role, so the wildcard is industry-
+  # standard for this pair.
+  statement {
+    actions = [
+      "xray:PutTraceSegments",
+      "xray:PutTelemetryRecords",
+    ]
+    resources = ["*"]
+  }
 }
 
 resource "aws_iam_role_policy" "lambda" {
@@ -254,6 +266,10 @@ resource "aws_lambda_function" "setup_hubspot" {
   filename                       = data.archive_file.source.output_path
   source_code_hash               = data.archive_file.source.output_base64sha256
   layers                         = [aws_lambda_layer_version.deps.arn]
+
+  tracing_config {
+    mode = "Active"
+  }
 
   environment {
     variables = local.common_env

@@ -32,6 +32,10 @@ resource "aws_lambda_function" "hubspot_webhook_receiver" {
   source_code_hash               = var.lambda_source_hash
   layers                         = [var.lambda_layer_arn]
 
+  tracing_config {
+    mode = "Active"
+  }
+
   environment {
     variables = local.ace_env
   }
@@ -49,6 +53,10 @@ resource "aws_lambda_function" "submit_to_ace" {
   filename                       = var.lambda_source_zip
   source_code_hash               = var.lambda_source_hash
   layers                         = [var.lambda_layer_arn]
+
+  tracing_config {
+    mode = "Active"
+  }
 
   environment {
     variables = local.ace_env
@@ -68,6 +76,10 @@ resource "aws_lambda_function" "update_in_ace" {
   source_code_hash               = var.lambda_source_hash
   layers                         = [var.lambda_layer_arn]
 
+  tracing_config {
+    mode = "Active"
+  }
+
   environment {
     variables = local.ace_env
   }
@@ -86,6 +98,10 @@ resource "aws_lambda_function" "handle_ace_event" {
   source_code_hash               = var.lambda_source_hash
   layers                         = [var.lambda_layer_arn]
 
+  tracing_config {
+    mode = "Active"
+  }
+
   environment {
     variables = local.ace_env
   }
@@ -103,6 +119,10 @@ resource "aws_lambda_function" "setup_hubspot_webhooks" {
   filename                       = var.lambda_source_zip
   source_code_hash               = var.lambda_source_hash
   layers                         = [var.lambda_layer_arn]
+
+  tracing_config {
+    mode = "Active"
+  }
 
   environment {
     variables = local.ace_env
