@@ -74,6 +74,22 @@ class TestMapHubSpotDealToACECreatePayload:
         )
         assert payload["Project"]["CustomerUseCase"] == "Security & Compliance"
 
+    def test_sales_activities_seeded_by_default(
+        self, deal: dict[str, object], app_config: AppConfig
+    ) -> None:
+        """AWS requires Project.SalesActivities to be non-empty before it
+        will advance the opportunity to ReviewStatus=Submitted. Verify the
+        mapper seeds a default so the review flow does not stall.
+        """
+        payload = map_hubspot_deal_to_ace_create_payload(
+            deal, app_config, client_token="tok"
+        )
+        activities = payload["Project"]["SalesActivities"]
+        assert isinstance(activities, list) and len(activities) >= 1
+        # Every element must be in the AWS-published enum.
+        from src.ace.mapper import ALLOWED_SALES_ACTIVITIES
+        assert all(a in ALLOWED_SALES_ACTIVITIES for a in activities)
+
     def test_use_case_other_falls_back_to_default(
         self, deal: dict[str, object], app_config: AppConfig, caplog
     ) -> None:

@@ -100,7 +100,10 @@ def test_opportunity_updated_skips_when_review_status_unmapped(
     state_mock, ace_mock, hubspot_mock
 ) -> None:
     """ReviewStatus 'Pending Submission' is the initial state after Create
-    and is intentionally not mapped to a HubSpot stage transition."""
+    and is intentionally not mapped to a HubSpot stage transition. The
+    handler reports it as a 'no-op' (vs 'skipped') so an operator scanning
+    CloudWatch can distinguish the expected initial-create case from a
+    real mapping miss."""
     ace_mock.get_opportunity.return_value = {
         "PartnerOpportunityIdentifier": "OPP1",
         "LifeCycle": {"ReviewStatus": "Pending Submission"},
@@ -109,7 +112,8 @@ def test_opportunity_updated_skips_when_review_status_unmapped(
          patch.object(handle_ace_event, "ACEClient", return_value=ace_mock), \
          patch.object(handle_ace_event, "HubSpotClient", return_value=hubspot_mock):
         result = handle_ace_event.handler(_opportunity_event(), context=None)
-    assert result["status"] == "skipped"
+    assert result["status"] == "no-op"
+    assert "Pending Submission" in result["reason"]
     hubspot_mock.update_deal.assert_not_called()
 
 
