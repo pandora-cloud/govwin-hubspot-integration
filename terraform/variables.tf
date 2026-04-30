@@ -195,7 +195,15 @@ variable "ace_catalog" {
 }
 
 variable "ace_default_solution_id" {
-  description = "Default Partner Central Solution ID (e.g. S-0051246 for Pandora Cloud Professional Services)"
+  description = <<-EOT
+    Default Partner Central Solution ID. Production: e.g. S-0051246 for the
+    AWS catalog. Sandbox: leave EMPTY unless AWS support has provisioned a
+    Sandbox Solution for your org (the default S-1234567 in the docs is not
+    auto-provisioned). When empty, submit_to_ace skips AssociateOpportunity
+    and relies on OtherSolutionDescription on CreateOpportunity, which AWS
+    accepts. An AWS-catalog Solution ID will not validate against the
+    Sandbox catalog and will cause AssociateOpportunity to fail.
+  EOT
   type        = string
 }
 

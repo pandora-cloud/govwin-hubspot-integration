@@ -4,8 +4,18 @@ Runs scenarios 1-5 and 10 from docs/testing.md against a real Sandbox catalog
 in Pandora's AWS account. Cleans up the sandbox opportunities at the end.
 
 Scenarios:
-  1. CreateOpportunity
-  2. AssociateOpportunity with the configured Solution
+  1. CreateOpportunity (with OtherSolutionDescription so the opp is valid even
+     without an associated Solution)
+  2. AssociateOpportunity. Path is auto-selected:
+       a) If --solution-id (or ACE_DEFAULT_SOLUTION_ID) names an Approved
+          Sandbox Solution, associate that Solution.
+       b) Otherwise, associate an AwsProduct (--aws-product, default
+          "Amazon EC2"). Per the AWS partner-crm-integration-samples repo,
+          AwsProducts are the recommended Sandbox associatable when the
+          partner has no registered Solution. See:
+          https://github.com/aws-samples/partner-crm-integration-samples
+       c) --skip-associate forces no association at all (relies purely on
+          the OtherSolutionDescription field).
   3. StartEngagementFromOpportunityTask
   4. UpdateOpportunity with optimistic locking (positive)
   5. UpdateOpportunity with stale lock (negative -> ConflictException recovery)
@@ -13,8 +23,18 @@ Scenarios:
 
 The remaining scenarios (6-9, 11) are manual; see docs/phase4-runbook.md.
 
+Note on Sandbox Solutions:
+  AWS docs claim a default Sandbox solution `S-1234567` exists, but newly
+  onboarded partner orgs see an empty list_solutions(Catalog="Sandbox")
+  response. Open a Partner Central support case (CRM Integration) to have
+  one provisioned. Until then, this script's AwsProducts path keeps the
+  three-call flow exercised end-to-end.
+
 Usage:
-  python scripts/sandbox_smoke.py [--keep] [--solution-id S-XXXXXXX] \\
+  python scripts/sandbox_smoke.py [--keep] \\
+      [--solution-id S-XXXXXXX] \\
+      [--aws-product "Amazon EC2"] \\
+      [--skip-associate] \\
       [--api-url https://abc.execute-api.us-east-1.amazonaws.com/hubspot]
 
 Environment:
@@ -31,14 +51,33 @@ import os
 import sys
 import time
 import uuid
+from pathlib import Path
 from typing import Any
 
-import boto3
-import httpx
-from botocore.exceptions import ClientError
+# Make `from src.ace.client import ACEClient` work when this script is
+# launched directly (PYTHONPATH=. is otherwise required).
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+
+import boto3  # noqa: E402
+import httpx  # noqa: E402
+from botocore.exceptions import ClientError  # noqa: E402
+
+from src.ace.client import ACEClient  # noqa: E402
 
 CATALOG = "Sandbox"
 REGION = "us-east-1"
+# Identifier from the canonical product list at
+# https://github.com/aws-samples/partner-crm-integration-samples/blob/main/resources/aws_products.json
+# AssociateOpportunity expects the short Identifier (e.g. "AmazonEC2Linux"),
+# not the human-friendly Name ("Amazon EC2 Linux").
+DEFAULT_AWS_PRODUCT = "AmazonEC2Linux"
+OTHER_SOLUTION_DESCRIPTION = (
+    "Sandbox smoke test: AWS migration accelerator for federal customers. "
+    "Pandora Cloud delivers professional services around discovery, landing zone, "
+    "workload migration, and post-migration optimization."
+)
 
 
 def _client() -> Any:
@@ -82,6 +121,11 @@ def _build_create_payload(client_token: str) -> dict[str, Any]:
             "CustomerBusinessProblem": "Smoke-test opportunity created by sandbox_smoke.py",
             "CustomerUseCase": "Migration / Database Migration",
             "DeliveryModels": ["Professional Services"],
+            # OtherSolutionDescription is required when no Solution will be
+            # associated. Populated unconditionally so the opportunity is
+            # self-describing even when AssociateOpportunity is skipped or
+            # falls back to an AwsProduct.
+            "OtherSolutionDescription": OTHER_SOLUTION_DESCRIPTION,
             "ExpectedCustomerSpend": [
                 {
                     "Amount": "100000.00",
@@ -98,6 +142,38 @@ def _build_create_payload(client_token: str) -> dict[str, Any]:
     }
 
 
+def _resolve_associate_target(
+    client: Any, solution_id: str, aws_product: str, skip: bool
+) -> tuple[str, str] | None:
+    """Pick what AssociateOpportunity should attach.
+
+    Returns (RelatedEntityType, RelatedEntityIdentifier) or None to skip.
+
+    Order of preference:
+      1. Explicit --skip-associate -> skip.
+      2. --solution-id provided AND it appears in list_solutions(Sandbox) ->
+         use Solutions.
+      3. Otherwise -> use AwsProducts with the configured product name. AWS
+         Products are valid in Sandbox without any partner-side registration.
+    """
+    if skip:
+        return None
+    if solution_id:
+        try:
+            response = client.list_solutions(Catalog=CATALOG, MaxResults=50)
+        except ClientError:
+            response = {"SolutionSummaries": []}
+        ids = {s.get("Id") for s in response.get("SolutionSummaries", [])}
+        if solution_id in ids:
+            return ("Solutions", solution_id)
+        print(
+            f"  [INFO] solution {solution_id} not found in Sandbox catalog "
+            f"(list_solutions returned {len(ids)} entries); falling back to "
+            f"AwsProducts ({aws_product})."
+        )
+    return ("AwsProducts", aws_product)
+
+
 def scenario_1_create(client: Any) -> dict[str, Any]:
     print("Scenario 1: CreateOpportunity in Sandbox")
     token = str(uuid.uuid4())
@@ -112,15 +188,18 @@ def scenario_1_create(client: Any) -> dict[str, Any]:
     return response
 
 
-def scenario_2_associate(client: Any, opp_id: str, solution_id: str) -> None:
-    print("Scenario 2: AssociateOpportunity with configured Solution")
+def scenario_2_associate(
+    client: Any, opp_id: str, target: tuple[str, str]
+) -> None:
+    related_type, related_id = target
+    print(f"Scenario 2: AssociateOpportunity ({related_type})")
     client.associate_opportunity(
         Catalog=CATALOG,
         OpportunityIdentifier=opp_id,
-        RelatedEntityIdentifier=solution_id,
-        RelatedEntityType="Solutions",
+        RelatedEntityIdentifier=related_id,
+        RelatedEntityType=related_type,
     )
-    _ok("associated", f"opp={opp_id} solution={solution_id}")
+    _ok("associated", f"opp={opp_id} {related_type.lower()[:-1]}={related_id}")
 
 
 def scenario_3_start_engagement(client: Any, opp_id: str) -> dict[str, Any]:
@@ -136,11 +215,11 @@ def scenario_3_start_engagement(client: Any, opp_id: str) -> dict[str, Any]:
     # Poll briefly for completion. AWS often completes within seconds in Sandbox.
     for _ in range(30):
         time.sleep(2)
-        # No GetTask API; we check the opportunity to see if it now has an
-        # engagement invitation associated.
+        # No GetTask API; we check the opportunity to see if its review
+        # status has advanced past Pending Submission.
         opp = client.get_opportunity(Catalog=CATALOG, Identifier=opp_id)
         review = opp.get("LifeCycle", {}).get("ReviewStatus")
-        if review in {"Submitted", "Approved", "In Review", "Action Required"}:
+        if review in {"Submitted", "Approved", "In review", "Action Required"}:
             _ok("engagement complete", f"review_status={review}")
             return response
     print("  [WARN] task did not complete within 60s; continuing")
@@ -166,11 +245,9 @@ def _get_with_retry(client: Any, opp_id: str, attempts: int = 6) -> dict[str, An
 
 
 def _scrub_for_update(current: dict[str, Any]) -> dict[str, Any]:
-    """Delegates to the production ACEClient.scrub_for_update so the smoke
-    test exercises the same whitelist as the deployed Lambda. Kept as a
-    thin wrapper to make the smoke script's intent obvious.
+    """Delegate to the production ACEClient.scrub_for_update so the smoke
+    test exercises the same whitelist as the deployed Lambda.
     """
-    from src.ace.client import ACEClient
     return ACEClient.scrub_for_update(current)
 
 
@@ -259,11 +336,25 @@ def cleanup(client: Any, opp_id: str) -> None:
 
     AWS does not currently expose a DeleteOpportunity API; the standard cleanup
     is to mark it Closed Lost in LifeCycle so it stops appearing in active
-    queries. Sandbox state is also wiped periodically.
+    queries. Sandbox state is also wiped periodically by AWS, so a failure
+    here is non-fatal.
+
+    Sandbox enforces: Stage cannot move to "Closed Lost" while ReviewStatus is
+    "Pending Submission". Opportunities that completed scenario 3
+    (StartEngagement) end up with ReviewStatus = "Submitted" / "In review"
+    and are closeable; opportunities that failed before that are stuck and
+    will be cleared by AWS's periodic Sandbox reset.
     """
     print(f"Cleanup: marking {opp_id} as Closed Lost")
     try:
         current = _get_with_retry(client, opp_id, attempts=3)
+        review = current.get("LifeCycle", {}).get("ReviewStatus", "")
+        if review == "Pending Submission":
+            print(
+                f"  [SKIP] {opp_id} is still Pending Submission; cannot close. "
+                "AWS will wipe Sandbox state on the next reset."
+            )
+            return
         payload = _scrub_for_update(current)
         # "Closed Lost" is a Stage enum value, not a ReviewStatus value.
         lc = dict(payload.get("LifeCycle") or {})
@@ -287,7 +378,20 @@ def main() -> int:
     parser.add_argument(
         "--solution-id",
         default=os.environ.get("ACE_DEFAULT_SOLUTION_ID", ""),
-        help="Partner Central Solution ID (e.g. S-0051246)",
+        help=(
+            "Partner Central Solution ID to associate (e.g. S-0051246). "
+            "Used only if it appears in the Sandbox solutions list."
+        ),
+    )
+    parser.add_argument(
+        "--aws-product",
+        default=DEFAULT_AWS_PRODUCT,
+        help=(
+            "AwsProducts fallback for AssociateOpportunity when no Sandbox "
+            "Solution is registered. Must be a real AWS product name; see "
+            "github.com/aws-samples/partner-crm-integration-samples for the "
+            "canonical list."
+        ),
     )
     parser.add_argument(
         "--api-url",
@@ -299,20 +403,26 @@ def main() -> int:
         action="store_true",
         help=(
             "Skip scenarios 2 and 3 (AssociateOpportunity + StartEngagement). "
-            "Useful when the Sandbox catalog has no Approved solution registered yet "
-            "and you want to validate the rest of the flow."
+            "Useful for validating the rest of the flow without exercising "
+            "AssociateOpportunity at all. Most users should NOT pass this -- "
+            "the AwsProducts fallback runs the full three-call flow even "
+            "without a Sandbox Solution."
         ),
     )
     args = parser.parse_args()
 
-    if not args.skip_associate and not args.solution_id:
-        print("ERROR: --solution-id or ACE_DEFAULT_SOLUTION_ID is required")
-        return 1
-
     client = _client()
     print(f"Running sandbox smoke matrix against catalog={CATALOG} region={REGION}")
-    if args.skip_associate:
-        print("(skipping scenarios 2-3: associate + engagement)")
+    target = _resolve_associate_target(
+        client,
+        solution_id=args.solution_id,
+        aws_product=args.aws_product,
+        skip=args.skip_associate,
+    )
+    if target is None:
+        print("(scenarios 2-3 will be skipped: --skip-associate)")
+    else:
+        print(f"(scenario 2 will associate {target[0]}={target[1]})")
     print()
 
     opp_id = ""
@@ -320,8 +430,8 @@ def main() -> int:
     try:
         create_response = scenario_1_create(client)
         opp_id = create_response["Id"]
-        if not args.skip_associate:
-            scenario_2_associate(client, opp_id, args.solution_id)
+        if target is not None:
+            scenario_2_associate(client, opp_id, target)
             scenario_3_start_engagement(client, opp_id)
             # After StartEngagement, the opportunity is locked from edits, so
             # scenarios 4 and 5 use a fresh opportunity. When skipping

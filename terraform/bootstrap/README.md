@@ -4,9 +4,22 @@ One-time setup that prepares an AWS account for deploying the GovWin -> HubSpot 
 
 ## Production MFA gate
 
-The deployer role's trust policy requires MFA on assume by default. This is the production posture and must not be relaxed for `environment = "prod"`. The bootstrap module now enforces this with a Terraform `precondition` — apply fails if you try to deploy with `environment = "prod"` and `require_mfa_to_assume_deployer = false`.
+The deployer role's trust policy requires MFA on assume by default. The bootstrap module enforces this with a Terraform `precondition`: apply fails if `environment = "prod"` is paired with `require_mfa_to_assume_deployer = false`.
 
-For sandbox or dev environments, you may flip `require_mfa_to_assume_deployer = false` so that long-lived access keys without MFA can assume the deployer role for fast iteration.
+### Why MFA on the assume call
+
+The deployer role can update Lambda code, IAM policies, secrets, DynamoDB tables, and the public-facing webhook API for the entire integration. A leaked access key with `sts:AssumeRole` on the deployer ARN is a full account compromise vector. MFA on the assume converts a leaked-key incident from "attacker has a working session" into "attacker also needs the user's MFA device". This is the difference between a recoverable credential rotation and a forensics engagement.
+
+It also satisfies compliance requirements that apply directly to Pandora Cloud's federal contracting work: NIST 800-53 IA-2(1) (multi-factor authentication for privileged accounts), CMMC L2 control IA.L2-3.5.3 (MFA for privileged access), and SOC 2 CC6.6. Without MFA on the deployer, those controls are not implemented for this account, and any audit will flag it.
+
+### When you can flip it off
+
+For an account that is genuinely sandbox-only (no real Partner Central submissions, no PII/CUI, just smoke testing), MFA on the assume call adds friction without protecting anything that matters. Two ways to disable it:
+
+1. `require_mfa_to_assume_deployer = false` together with `environment` set to something other than `prod` (`dev`, `sandbox`, etc.). The precondition only fires when environment is exactly `prod`.
+2. Keep `environment = "prod"` and explicitly set `acknowledge_no_mfa_for_sandbox_only = true`. This is the documented escape hatch for accounts where the resource naming has to look like prod (because a future flip to real production is planned in the same account) but real production data hasn't started flowing yet.
+
+Both paths leave a record: the variable name itself documents the trade-off. Before any real Partner Central data lands in the account, flip both back so the MFA gate engages.
 
 ## What it creates
 
