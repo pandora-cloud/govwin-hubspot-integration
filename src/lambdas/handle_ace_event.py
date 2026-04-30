@@ -25,10 +25,19 @@ logger = logging.getLogger(__name__)
 logger.setLevel(os.environ.get("LOG_LEVEL", "INFO"))
 
 
-# AWS review status -> HubSpot stage label. The label values are looked up
-# at runtime via get_stage_id_by_label so deployments can rename or
-# re-create stages without touching code; only the labels matter.
+# AWS review status -> HubSpot stage label. Keys MUST match the exact
+# casing of the boto3 enum values for LifeCycle.ReviewStatus:
+# ['Pending Submission', 'Submitted', 'In review', 'Approved', 'Rejected',
+# 'Action Required']. Note 'In review' uses a lowercase 'r'.
+#
+# Label values are resolved at runtime via get_stage_id_by_label so
+# deployments can rename pipeline stages without touching code; only the
+# labels listed here need to exist in the configured pipeline. Statuses
+# not in the map are intentionally ignored (e.g. 'Pending Submission'
+# fires on every CreateOpportunity but doesn't move the deal stage).
 _DEALSTAGE_BY_AWS_REVIEW: dict[str, str] = {
+    "Submitted": "Submitted to AWS",
+    "In review": "Under AWS Review",
     "Approved": "Approved by AWS",
     "Action Required": "Action Required",
     "Rejected": "Closed Lost",

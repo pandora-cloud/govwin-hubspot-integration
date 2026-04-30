@@ -98,13 +98,10 @@ data "aws_iam_policy_document" "ace_permissions" {
     resources = [aws_secretsmanager_secret.hubspot_webhook.arn]
   }
 
-  # DynamoDB scan is needed for the invitation / hubspot-deal lookup
-  # helpers in src/sync/state.py. v1 uses a Scan with a filter; a GSI
-  # upgrade is tracked for higher-volume deployments.
-  statement {
-    actions   = ["dynamodb:Scan"]
-    resources = [var.entity_mappings_table_arn]
-  }
+  # Reverse-index records (pk INV#... and DEAL#...) require GetItem and
+  # PutItem on the entity-mappings table; the base v1 policy on the
+  # Lambda role already grants those, so no additional ACE-specific
+  # DynamoDB statement is needed here.
 }
 
 resource "aws_iam_role_policy" "ace" {

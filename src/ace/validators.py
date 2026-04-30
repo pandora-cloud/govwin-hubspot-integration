@@ -15,8 +15,17 @@ _AWS_OPPORTUNITY_ID = re.compile(r"^[A-Za-z0-9_-]+$")
 
 
 def is_valid_hubspot_object_id(value: str | None) -> bool:
-    """HubSpot object ids are positive integers serialized as digit strings."""
-    return bool(value) and bool(_HUBSPOT_OBJECT_ID.match(value or ""))
+    """HubSpot object ids are positive integers serialized as digit strings.
+
+    Also caps length at 32 chars (HubSpot ids are ~12-15 digits today;
+    32 is well above that and bounds the cost of any downstream scan or
+    URL interpolation).
+    """
+    if not value:
+        return False
+    if len(value) > 32:
+        return False
+    return bool(_HUBSPOT_OBJECT_ID.match(value))
 
 
 def is_valid_govwin_id(value: str | None) -> bool:

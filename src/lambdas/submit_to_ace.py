@@ -75,6 +75,9 @@ def _load_deal(hubspot: HubSpotClient, deal_id: str) -> dict[str, Any]:
         "govwin_ace_partner_need",
         "govwin_ace_delivery_model",
         "govwin_ace_solution_id",
+        "govwin_ace_solution",  # legacy alias
+        "govwin_ace_use_case",  # CustomerUseCase override
+        "govwin_ace_other_solution_description",
         "govwin_ace_opportunity_type",
     ]
     return hubspot.get_deal(deal_id, properties=properties)
