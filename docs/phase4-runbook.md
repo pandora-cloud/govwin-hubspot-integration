@@ -4,14 +4,25 @@ End-to-end verification that the GovWin -> HubSpot -> AWS Partner Central pipeli
 
 ## Pre-flight (before any AWS calls)
 
-- [ ] On `feature/v2-ace-end-to-end` branch
-- [ ] `make test` (231 unit tests) and `make lint` clean
+- [ ] On the active feature branch
+- [ ] `make test` (248+ unit tests) and `make lint` clean
 - [ ] `terraform validate` clean
 - [ ] HubSpot project uploaded once via `hs project upload` so we have an `appId` and `clientSecret`
 - [ ] `terraform.tfvars` has the new v2 variables filled (`ace_default_solution_id`, `hubspot_webhook_app_id`, `hubspot_webhook_client_secret`)
 - [ ] `ace_catalog = "Sandbox"` in `terraform.tfvars`
 - [ ] AWS credentials in scope have Sandbox-only IAM (`partnercentral:Catalog: Sandbox` condition)
 - [ ] `make package` produced a fresh `lambda-layer.zip`
+
+### Sandbox Solutions: known gap and workaround
+
+AWS docs claim a default Solution `S-1234567` ships with every Sandbox catalog. In practice newly onboarded partner orgs see an empty `list_solutions(Catalog="Sandbox")` response. AWS support is the only path to provision one for an org.
+
+**Fix:** open a Partner Central support case (Type: AWS Partner Central -> CRM Integration) requesting that the default Sandbox Solution be provisioned for your org. Until then:
+
+- The deployed Lambda already does the right thing: when `resolve_solution_id` returns empty, `submit_to_ace` skips `AssociateOpportunity` and relies on `OtherSolutionDescription` on the original `CreateOpportunity` payload. AWS accepts this. See `submit_to_ace.py` step 3.
+- For smoke testing of the three-call flow without a real Sandbox Solution, `scripts/sandbox_smoke.py` falls back to `AssociateOpportunity(RelatedEntityType="AwsProducts")` against an entry from the canonical `aws_products.json` reference list (default `AmazonEC2Linux`). This keeps every step exercised end-to-end.
+
+For Sandbox-catalog deployments the `ace_default_solution_id` Terraform variable should be `""` (empty) unless and until AWS provisions a Solution for your org. An AWS-catalog Solution ID like `S-0051246` will fail validation against the Sandbox catalog.
 
 ## Phase 4.1 - Sandbox smoke matrix
 
