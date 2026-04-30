@@ -57,9 +57,46 @@ variable "acknowledge_no_mfa_for_sandbox_only" {
     being used purely for sandbox testing of the integration before any real
     AWS Partner Central data exists. Flip to false (or delete the variable)
     before any real production traffic reaches the account.
+
+    Use of this override requires both `acknowledge_no_mfa_justification`
+    (a non-empty written reason) and `acknowledge_no_mfa_expires_at` (an
+    ISO-8601 date in the future). The bootstrap precondition fails if the
+    justification is empty or the expiry is in the past.
   EOT
   type        = bool
   default     = false
+}
+
+variable "acknowledge_no_mfa_justification" {
+  description = <<-EOT
+    Free-text justification for using the no-MFA override. Stored as a tag
+    on the deployer role so audit tooling (Config rules, CloudTrail Lake)
+    can surface why MFA was disabled. Required when
+    acknowledge_no_mfa_for_sandbox_only is true. Example:
+    "Sandbox account 555049241846 - pre-production smoke testing only;
+    no AWS catalog data; MFA enforced post 2026-06-01."
+  EOT
+  type        = string
+  default     = ""
+}
+
+variable "acknowledge_no_mfa_expires_at" {
+  description = <<-EOT
+    ISO-8601 date (YYYY-MM-DD) after which the no-MFA override expires.
+    Past this date the bootstrap precondition fails and the next
+    `terraform apply` cannot run until either MFA is re-enabled or the
+    expiry is bumped (with a renewed justification). Recommended ceiling:
+    14 days. Required when acknowledge_no_mfa_for_sandbox_only is true.
+  EOT
+  type        = string
+  default     = ""
+  validation {
+    condition = (
+      var.acknowledge_no_mfa_expires_at == ""
+      || can(regex("^[0-9]{4}-[0-9]{2}-[0-9]{2}$", var.acknowledge_no_mfa_expires_at))
+    )
+    error_message = "acknowledge_no_mfa_expires_at must be empty or an ISO-8601 date (YYYY-MM-DD)."
+  }
 }
 
 variable "state_bucket_force_destroy" {

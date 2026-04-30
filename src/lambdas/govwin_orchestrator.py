@@ -21,7 +21,7 @@ from __future__ import annotations
 import json
 import logging
 import os
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, timedelta  # noqa: F401 -- timedelta still used below
 from typing import Any
 
 import boto3
@@ -125,13 +125,21 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
             except ClientError as exc:
                 logger.exception("sqs.send_message failed for batch: %s", exc)
 
-        # In date-range mode the cursor is advanced eagerly because each
-        # worker is independent and we don't want stragglers to block.
-        # Marked mode does not use the cursor. (v1 deferred this to a
-        # separate update_sync_state Lambda; here the orchestrator owns it
-        # because every other state transition is co-located.)
-        if not config.govwin.marked_version:
-            state.set_last_sync_timestamp(datetime.now(UTC).strftime("%m/%d/%Y"))
+        # The global SYNC_CURSOR row is intentionally NOT advanced here.
+        #
+        # Why: with SQS fan-out, the orchestrator dispatches batches and
+        # returns before any worker has run. If we advanced the cursor to
+        # ``now()`` and a worker then DLQ'd (transient HubSpot 5xx, three
+        # redeliveries), the un-synced opportunities would be permanently
+        # invisible to the next discovery: ``oppSelectionDateFrom = now()``
+        # filters them out before per-opp dedup ever sees them.
+        #
+        # Per-opp watermarks (``set_opp_state``, written by the worker after
+        # a successful HubSpot upsert) are the source of truth for what has
+        # been synced. Discovery's ``oppSelectionDateFrom`` stays anchored to
+        # the original lookback window; per-opp dedup drops the already-
+        # synced opps. Cost: ~50 extra GovWin calls per cycle, which is
+        # well inside the 4,000/hour budget.
 
         result = {
             "status": "ok",

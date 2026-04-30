@@ -37,7 +37,10 @@ logger = logging.getLogger(__name__)
 logger.setLevel(os.environ.get("LOG_LEVEL", "INFO"))
 
 
-_OPP_ID_PATTERN = re.compile(r"^[A-Z]{2,3}\d+$")
+# GovWin opportunity ids are 2-4 uppercase letters followed by digits.
+# Examples observed in production: OPP12345, BID12345, FBO4224455,
+# FBOP123456 (4-letter prefix on some legacy FBO records).
+_OPP_ID_PATTERN = re.compile(r"^[A-Z]{2,4}\d+$")
 _sns_client: Any | None = None
 
 
@@ -110,13 +113,31 @@ def _process_record(
     govwin: GovWinClient,
     hubspot: HubSpotClient,
 ) -> dict[str, Any]:
+    """Process one SQS record.
+
+    Returns a stats dict. Two distinct error channels are tracked:
+
+    - ``fetch_errors``: per-id pre-flight problems (invalid id format, GovWin
+      404, etc). These are NOT retry-worthy; the batch as a whole still
+      proceeds with whatever bundles were fetchable.
+    - ``sync_errors``: HubSpot upserts or association calls raised inside
+      ``SyncOrchestrator.sync_opportunity_batch``. These ARE retry-worthy
+      because a transient HubSpot 5xx during company/deal upsert silently
+      drops every deal in the batch (the orchestrator captures the exception
+      and continues). Promoted to ``sync_failed = True`` so the handler can
+      append the message to ``batchItemFailures`` and SQS redelivers.
+    """
     refs = _decode_batch(record)
     if not refs:
-        return {"status": "empty"}
+        return {"status": "empty", "sync_failed": False}
 
     bundles, fetch_errors = _fetch_bundles(govwin, refs)
     if not bundles:
-        return {"status": "no_bundles", "errors": fetch_errors}
+        return {
+            "status": "no_bundles",
+            "fetch_errors": fetch_errors,
+            "sync_failed": False,
+        }
 
     orchestrator = SyncOrchestrator(
         config=config,
@@ -125,8 +146,14 @@ def _process_record(
         state_manager=state,
     )
     stats = orchestrator.sync_opportunity_batch(bundles)
+    sync_errors = list(stats.get("errors") or [])
+    stats["sync_failed"] = bool(sync_errors)
     if fetch_errors:
-        stats.setdefault("errors", []).extend(fetch_errors)
+        stats["fetch_errors"] = fetch_errors
+    # Cap the response payload Lambda writes to logs. Large failure runs
+    # otherwise blow out CloudWatch ingest.
+    if len(sync_errors) > 10:
+        stats["errors"] = sync_errors[:10] + [f"... and {len(sync_errors) - 10} more"]
     return stats
 
 
@@ -155,9 +182,26 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
                     hubspot=hubspot,
                 )
                 results.append(result)
+                # HubSpot upsert / association failures are retry-worthy.
+                # The orchestrator captures these exceptions internally and
+                # returns a stats dict, so the only signal is sync_failed.
+                if result.get("sync_failed"):
+                    logger.warning(
+                        "worker: sync had errors for message %s; "
+                        "reporting as batch item failure for SQS redelivery",
+                        message_id,
+                    )
+                    failures.append({"itemIdentifier": message_id})
             except json.JSONDecodeError:
+                # Permanent error -- drop without retry, but alert so the
+                # poison-pill is visible to the on-call engineer.
                 logger.warning("worker: invalid JSON in message %s", message_id)
-                # Permanent error -- drop without retry.
+                _publish_failure_alert(
+                    config=config,
+                    message_id=message_id,
+                    summary="invalid JSON in SQS message",
+                    detail="Message body was not valid JSON; dropped without retry.",
+                )
                 continue
             except GovWinRateLimitError:
                 logger.warning(

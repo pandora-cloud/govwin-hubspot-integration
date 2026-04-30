@@ -103,7 +103,15 @@ def test_marked_version_path_fans_out_to_sqs(monkeypatch, app_config, mock_aws_e
     assert all("id" in entry for entry in body["opportunity_batch"])
 
 
-def test_date_range_path_advances_cursor(monkeypatch, app_config, mock_aws_env):
+def test_date_range_path_does_not_advance_cursor_eagerly(
+    monkeypatch, app_config, mock_aws_env
+):
+    """The orchestrator must NOT advance the global SYNC_CURSOR row when it
+    dispatches batches. Per-opp watermarks (written by the worker after a
+    successful sync) are the source of truth; advancing the global cursor
+    eagerly would silently lose un-synced opportunities when a worker DLQs
+    after exhausting redeliveries.
+    """
     cfg = app_config
     object.__setattr__(cfg.govwin, "marked_version", "")  # disable marked-version branch
     monkeypatch.setattr(govwin_orchestrator, "load_config", lambda: cfg)
@@ -118,7 +126,7 @@ def test_date_range_path_advances_cursor(monkeypatch, app_config, mock_aws_env):
 
     assert result["status"] == "ok"
     assert result["batches_enqueued"] == 1
-    state.set_last_sync_timestamp.assert_called_once()
+    state.set_last_sync_timestamp.assert_not_called()
 
 
 def test_empty_marked_results_short_circuits_no_sqs(

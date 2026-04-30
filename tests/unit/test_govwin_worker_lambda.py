@@ -112,7 +112,8 @@ def test_invalid_opp_id_filtered_into_errors(monkeypatch, app_config, mock_aws_e
     result = govwin_worker.handler(event, None)
     assert result["batchItemFailures"] == []
     stats = result["results"][0]
-    assert any("invalid opportunity id" in e for e in stats.get("errors", []))
+    fetch_errors = stats.get("fetch_errors") or []
+    assert any("invalid opportunity id" in e for e in fetch_errors)
 
 
 def test_rate_limit_deferred_as_batch_failure(monkeypatch, app_config, mock_aws_env):
@@ -143,7 +144,8 @@ def test_per_id_fetch_error_recorded_but_does_not_fail_batch(
     result = govwin_worker.handler(event, None)
     assert result["batchItemFailures"] == []
     stats = result["results"][0]
-    assert any("OPP1: ValueError" in e for e in stats.get("errors", []))
+    fetch_errors = stats.get("fetch_errors") or []
+    assert any("OPP1: ValueError" in e for e in fetch_errors)
 
 
 def test_no_bundles_skips_orchestrator(monkeypatch, app_config, mock_aws_env):
@@ -205,3 +207,87 @@ def test_decode_batch_handles_list_payload(monkeypatch, app_config, mock_aws_env
 def test_decode_batch_returns_empty_for_unexpected_shape():
     refs = govwin_worker._decode_batch({"body": json.dumps({"opportunity_batch": "?"})})
     assert refs == []
+
+
+def test_sync_errors_become_batch_item_failures(
+    monkeypatch, app_config, mock_aws_env
+):
+    """B1 fix: a HubSpot 5xx during company/deal upsert is captured by the
+    orchestrator into stats['errors'], and the worker must promote that to
+    batchItemFailures so SQS redelivers. Otherwise the batch is silently lost
+    and the next orchestrator tick won't re-discover the opps.
+    """
+    monkeypatch.setattr(govwin_worker, "load_config", lambda: app_config)
+    _patch_clients(
+        monkeypatch,
+        sync_stats={
+            "deals_synced": 0,
+            "companies_synced": 0,
+            "contacts_synced": 0,
+            "associations_created": 0,
+            "errors": ["Company upsert failed: HubSpotAPIError(503, 'unavailable')"],
+        },
+    )
+    event = {"Records": [_record("m1", ["OPP1"])]}
+
+    result = govwin_worker.handler(event, None)
+
+    assert result["batchItemFailures"] == [{"itemIdentifier": "m1"}]
+    assert len(result["results"]) == 1
+    assert result["results"][0]["sync_failed"] is True
+
+
+def test_fetch_errors_alone_do_not_trigger_batch_failure(
+    monkeypatch, app_config, mock_aws_env
+):
+    """Pre-flight per-id problems (invalid id, GovWin 404) are captured in
+    fetch_errors but NOT promoted to batchItemFailures: retrying won't help.
+    """
+    monkeypatch.setattr(govwin_worker, "load_config", lambda: app_config)
+    _patch_clients(
+        monkeypatch,
+        govwin_bundles={
+            "lowercase": ValueError("ignored, will be filtered"),
+            "OPP1": _bundle("OPP1"),
+        },
+    )
+    event = {"Records": [_record("m1", ["lowercase", "OPP1"])]}
+
+    result = govwin_worker.handler(event, None)
+    assert result["batchItemFailures"] == []
+
+
+def test_four_letter_opp_id_accepted(monkeypatch, app_config, mock_aws_env):
+    """H4 fix: legacy 4-letter prefixes like FBOP123456 must NOT be rejected
+    by the worker's pre-flight regex.
+    """
+    monkeypatch.setattr(govwin_worker, "load_config", lambda: app_config)
+    _patch_clients(monkeypatch)
+    event = {"Records": [_record("m1", ["FBOP123456"])]}
+
+    result = govwin_worker.handler(event, None)
+    assert result["batchItemFailures"] == []
+    stats = result["results"][0]
+    # fetch_errors should be empty (no "invalid opportunity id" entry).
+    assert "fetch_errors" not in stats or all(
+        "invalid opportunity id" not in e for e in stats.get("fetch_errors", [])
+    )
+
+
+def test_invalid_json_publishes_alert_then_drops(
+    monkeypatch, app_config, mock_aws_env
+):
+    """M6 fix: poison-pill JSON is permanently dropped (no retry), but an
+    SNS alert fires so the on-call sees it.
+    """
+    monkeypatch.setattr(govwin_worker, "load_config", lambda: app_config)
+    object.__setattr__(app_config.aws, "sns_topic_arn", "arn:aws:sns:us-east-1:0:t")
+    _patch_clients(monkeypatch)
+    sns = MagicMock()
+    govwin_worker._sns_client = sns
+
+    event = {"Records": [{"messageId": "m1", "body": "not json"}]}
+    result = govwin_worker.handler(event, None)
+    assert result["batchItemFailures"] == []  # dropped, no retry
+    sns.publish.assert_called_once()
+    govwin_worker._sns_client = None

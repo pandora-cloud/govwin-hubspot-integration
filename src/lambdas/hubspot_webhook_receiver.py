@@ -22,6 +22,7 @@ from botocore.exceptions import ClientError
 
 from src.config import load_config
 from src.lambdas._webhook_routing import classify_property_change
+from src.sync.state import SyncStateManager
 
 logger = logging.getLogger(__name__)
 logger.setLevel(os.environ.get("LOG_LEVEL", "INFO"))
@@ -219,6 +220,28 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
     ):
         logger.warning("hubspot webhook rejected: signature mismatch")
         return {"statusCode": 401, "body": "invalid signature"}
+
+    # Replay protection: signature is valid AND fresh, but the same signed
+    # body could be replayed within the freshness window (HubSpot allows up
+    # to 5 minutes for clock skew). We hash the (signature, timestamp)
+    # tuple and reserve it in DynamoDB with TTL = 2x the max age. A second
+    # delivery with the same hash within that window is dropped.
+    #
+    # We hash rather than use the signature directly so a leaked CloudWatch
+    # log cannot be used to extend the replay window indefinitely; the
+    # fingerprint is one-way and rotates on every legitimate request.
+    fingerprint = hashlib.sha256(
+        (signature + "|" + timestamp).encode("utf-8")
+    ).hexdigest()
+    state = SyncStateManager(config)
+    if not state.reserve_webhook_signature(
+        fingerprint, ttl_seconds=config.ace.webhook_max_age_seconds * 2
+    ):
+        logger.warning(
+            "hubspot webhook rejected: replay detected for fingerprint=%s...",
+            fingerprint[:12],
+        )
+        return {"statusCode": 409, "body": "replay detected"}
 
     submit_queue = config.aws.ace_submission_queue_url
     update_queue = config.aws.ace_update_queue_url
