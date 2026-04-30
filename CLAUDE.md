@@ -9,16 +9,19 @@ End-to-end pipeline from Deltek GovWin IQ through HubSpot CRM into AWS Partner C
 - **Public repo**: `github.com/pandora-cloud-llc/govwin-hubspot-integration` (also mirrored to a private GitLab; both `.gitlab-ci.yml` and `.github/workflows/ci.yml` run on every push)
 - **CI**: lint + types + unit tests + secret scan
 - **Language**: Python 3.12
-- **AWS Services**: Lambda, Step Functions, DynamoDB, Secrets Manager, EventBridge, SNS, SQS
+- **AWS Services**: Lambda, DynamoDB, Secrets Manager, EventBridge Scheduler, SNS, SQS, API Gateway
 - **IaC**: Terraform (modular, in `terraform/`)
 
 ## Pipeline
 
 ```
-GovWin IQ -> [Step Function: GovWin sync] -> HubSpot CRM
-                                                  |
-                              dealstage transition (HubSpot webhook)
-                                                  v
+EventBridge Scheduler (rate(1 hour))
+   |
+   v
+[govwin_orchestrator Lambda] -> SQS -> [govwin_worker Lambda] -> HubSpot CRM
+                                                                       |
+                                       dealstage transition (HubSpot webhook)
+                                                                       v
        API Gateway -> Lambda receiver -> SQS -> [submit_to_ace Lambda]
                                                   |
               CreateOpportunity -> AssociateOpportunity -> StartEngagement
@@ -67,14 +70,10 @@ src/
     dedup.py             - Change detection: filter by updateDate (timezone-aware)
     orchestrator.py      - High-level sync coordination
   lambdas/
-    authenticate.py             - Get/refresh GovWin OAuth token
-    discover_changes.py         - Discover opps to sync (marked/saved search/bookmarked/all)
-    fetch_opp_details.py        - Fetch full opportunity data (bundle)
-    sync_to_hubspot.py          - Push to HubSpot via batch APIs
-    update_sync_state.py        - Persist sync cursor to DynamoDB
+    govwin_orchestrator.py      - EventBridge Scheduler -> token refresh + discovery + SQS fan-out
+    govwin_worker.py            - SQS -> per-batch fetch + HubSpot sync (batchItemFailures-aware)
     setup_hubspot.py            - One-time property/pipeline creation
     setup_hubspot_webhooks.py   - One-time webhook subscription registration
-    handle_error.py             - Error notification (SNS + SQS DLQ)
     hubspot_webhook_receiver.py - API Gateway -> validate signature -> SQS routing
     submit_to_ace.py            - SQS -> 3-call ACE submission with resume-from-step idempotency
     update_in_ace.py            - SQS -> UpdateOpportunity with optimistic locking
@@ -85,7 +84,7 @@ terraform/
   backend.tf             - S3 backend (gitignored, deployer-specific)
   main.tf                - Root module wiring
   variables.tf           - All configurable inputs (sensitive marked)
-  modules/               - lambda, step_function, dynamodb, secrets, monitoring, ace
+  modules/               - lambda, govwin_sync, ace, dynamodb, secrets, monitoring
 scripts/
   validate.py            - Pre-deployment credential and connectivity checks
   dry_run.py             - Preview sync results without writing to HubSpot
@@ -121,7 +120,7 @@ Direct boto3 calls to `partnercentral-selling` (us-east-1, IAM SigV4 auth) repla
 
 ## Key Design Decisions
 
-- **Step Functions over single Lambda**: Handles multi-step sync within rate limits, avoids 15-min timeout
+- **Orchestrator + worker via SQS** (replaces v2.0 Step Function): The orchestrator handles discovery + token refresh + cursor advance; the worker drains the queue with one batch per invoke. Removing the Map state eliminates the 256KB inter-state payload limit and lets each batch retry independently. Concurrency is governed by Lambda `reservedConcurrentExecutions` rather than `Map.maxConcurrency`.
 - **DynamoDB for state**: Serverless, pay-per-request, perfect for key-value sync tracking
 - **Secrets Manager over SSM**: Automatic rotation support, audit trail
 - **HubSpot batch upsert with idProperty**: Eliminates search-before-upsert, reducing API calls by ~50%

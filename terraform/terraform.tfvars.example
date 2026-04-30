@@ -29,12 +29,12 @@ hubspot_private_app_token = "pat-na1-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
 # Optional - Sync Configuration
 ###############################################################################
 
-# sync_schedule          = "rate(4 hours)"   # How often to sync
+# sync_schedule          = "rate(1 hour)"    # How often the orchestrator runs
 # govwin_opp_types       = "ALL"             # OPP, BID, TNS, FBO, OPN, TOP, ALL
 # govwin_market          = ""                # Federal, SLED, or both (empty)
 # initial_lookback_days  = 365               # Days to look back on first sync
-# max_concurrency        = 2                 # Parallel batches in Step Function
-# batch_size             = 10                # Opportunities per batch (max 25)
+# max_concurrency        = 2                 # Worker reservedConcurrency (GovWin 4k/hour budget gates this)
+# batch_size             = 10                # Opportunities per SQS message
 
 ###############################################################################
 # Optional - Opportunity Filtering (choose one or combine)

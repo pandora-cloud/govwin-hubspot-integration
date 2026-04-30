@@ -6,79 +6,55 @@ This integration sits between three external APIs and orchestrates data flow on 
 
 ![Pipeline Overview](diagrams/pipeline-overview.svg)
 
-### v1: GovWin to HubSpot
+### GovWin to HubSpot (v2.1)
 
-The hourly Step Function workflow that has been in production since 2026.
+EventBridge Scheduler invokes the orchestrator Lambda on a configurable cadence (default: hourly). The orchestrator refreshes the GovWin OAuth token, runs discovery, filters by `updateDate`, batches the changed opportunities, and fans them out as SQS messages. The worker Lambda drains the queue, fetches each opportunity bundle from GovWin, and pushes deals/companies/contacts/associations to HubSpot. Worker concurrency is governed by Lambda `reservedConcurrentExecutions` (default 2, sized for the GovWin 4,000 calls/hour budget).
+
+The v2.0 Step Function chain (Authenticate → DiscoverChanges → Map(FetchDetails + SyncToHubSpot) → UpdateSyncState) is gone. Replacing the Map state with SQS removes the 256KB inter-state payload limit and lets each opportunity batch retry independently.
 
 ![GovWin to HubSpot architecture](diagrams/architecture.svg)
 
-### v2: HubSpot to AWS Partner Central
+### HubSpot to AWS Partner Central
 
 When a HubSpot deal moves to **Submit to AWS**, the webhook receiver enqueues the event onto SQS, the submit Lambda runs the three-call Selling-API flow, and EventBridge events from `aws.partnercentral-selling` flow back to update the HubSpot deal stage.
 
 ![HubSpot to AWS Partner Central architecture](diagrams/architecture-v2-ace.svg)
 
-## Step Function Workflow
-
-The sync runs as a Step Function state machine triggered by EventBridge on a configurable schedule (default: every 4 hours).
-
-### States
+## Sync Flow
 
 ```
-Start
+EventBridge Scheduler (rate(1 hour))
   |
   v
-[Authenticate] ── Get/refresh GovWin OAuth token from Secrets Manager
+[govwin_orchestrator Lambda]
+  |  - Refresh GovWin OAuth token (Secrets Manager)
+  |  - Discover opportunities (marked / saved-search / bookmarked / date-range)
+  |  - filter_changed_opportunities() against DynamoDB cursor
+  |  - Batch into BATCH_SIZE-sized chunks
+  |  - In date-range mode: advance the SYNC_CURSOR row inline
   |
-  v
-[Discover Changes] ── Fetch opportunities to sync (mode-dependent):
-  |                    - Default: get opps marked for "Web Services Download"
-  |                    - Alternative: date-range search with saved search/bookmark filter
-  |                    Paginate through results (max 100/page)
-  |                    Compare updateDate against stored values (timezone-aware)
-  |                    Return list of opportunity IDs needing sync
-  |
-  v
-[Check For Changes] ── Choice state: if no changes, skip to end
-  |
-  v
-[Process Opportunities] ── Map state (maxConcurrency=2)
-  |   |
-  |   +-- [Fetch Details] ── For each opportunity batch:
-  |   |     GET summary + contacts + companies + contracts
-  |   |     Rate-limit aware (Wait states if approaching 4,000/hr)
-  |   |
-  |   +-- [Sync to HubSpot] ── Batch upsert deals, companies, contacts
-  |         Create associations (Deal<->Company, Deal<->Contact)
-  |         Use idProperty for deduplication
-  |
-  v
-[Update Sync State] ── Write last_sync timestamp to DynamoDB
-  |                     Update per-opportunity updateDate records
-  |                     Update GovWin<->HubSpot ID mappings
-  |
-  v
-[Send Summary] ── SNS notification with sync statistics
-  |
-  v
-End
-
-On any error:
-  [Handle Error] ── Log to CloudWatch, send SNS alert
-                    Write failed items to SQS dead letter queue
+  +--> SQS govwin-sync queue (one message per batch)
+              |
+              v
+       [govwin_worker Lambda] (reservedConcurrency = MAX_CONCURRENCY)
+         - Fetch opportunity bundle for each id (rate-limited)
+         - SyncOrchestrator.sync_opportunity_batch(): batch upsert
+           companies, contacts, deals; create associations
+         - Per-opportunity updateDate persisted as the sync proceeds
+         - Permanent errors: SNS alert + drop. Transient (rate limit,
+           HubSpot 5xx): batchItemFailures so SQS redelivers.
+              |
+              v
+       Failed messages -> govwin-sync-dlq (after 3 receives)
 ```
 
 ## Lambda Functions
 
 | Function | Purpose | Trigger | Timeout | Memory |
 |---|---|---|---|---|
-| `authenticate` | Get/refresh GovWin OAuth token | Step Function | 30s | 128 MB |
-| `discover_changes` | Search for updated opportunities | Step Function | 5 min | 256 MB |
-| `fetch_opp_details` | Fetch full opportunity data for a batch | Step Function | 5 min | 256 MB |
-| `sync_to_hubspot` | Push data to HubSpot via batch APIs | Step Function | 5 min | 256 MB |
-| `update_sync_state` | Persist sync state to DynamoDB | Step Function | 30s | 128 MB |
+| `govwin_orchestrator` | Discovery, OAuth refresh, SQS fan-out, cursor advance | EventBridge Scheduler | 10 min | 512 MB |
+| `govwin_worker` | Per-batch fetch + HubSpot sync, partial-batch failure reporting | SQS govwin-sync queue | 5 min | 512 MB |
 | `setup_hubspot` | One-time: create custom properties and pipeline | Manual / deploy | 2 min | 128 MB |
-| `handle_error` | Error notification and DLQ management | Step Function | 30s | 128 MB |
 | `hubspot_webhook_receiver` | Validate `X-HubSpot-Signature-v3`, route events to SQS | API Gateway HTTP API | 5s | 256 MB |
 | `submit_to_ace` | Three-call ACE submission (Create + Associate + StartEngagement) with resume-from-step idempotency | SQS submit queue | 5 min | 512 MB |
 | `update_in_ace` | UpdateOpportunity with optimistic locking on `LastModifiedDate` | SQS update queue | 2 min | 256 MB |
@@ -119,8 +95,8 @@ Both tables use a 180-day TTL on per-opportunity and entity-mapping records (the
 - Each opportunity requires ~4 detail calls (contacts, companies, places, contracts)
 - Discovery pagination: ~50 calls per 5,000 opportunities
 - Maximum throughput: ~975 opportunities per sync cycle
-- Step Function Map state `maxConcurrency=2` controls parallelism
-- Built-in Wait states pause when approaching the limit
+- Worker Lambda `reservedConcurrentExecutions` (default 2) caps parallelism within the org-wide budget
+- Built-in token-bucket pause on the GovWin client when approaching the limit; SQS redelivery handles overruns
 
 ### HubSpot (100 requests/10 seconds)
 

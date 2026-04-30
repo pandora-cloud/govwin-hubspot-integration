@@ -123,7 +123,7 @@ variable "initial_lookback_days" {
 }
 
 variable "max_concurrency" {
-  description = "Max parallel batches in Step Function Map state"
+  description = "reservedConcurrentExecutions for the GovWin worker Lambda. Bound by the GovWin org-level 4,000 calls/hour budget; raising past 2 risks rate-limit hits unless the budget is increased."
   type        = number
   default     = 2
 
@@ -134,7 +134,7 @@ variable "max_concurrency" {
 }
 
 variable "batch_size" {
-  description = "Number of opportunities per batch in Map state (max 25 to stay within Step Function 256KB payload limit)"
+  description = "Opportunities per SQS message dispatched from the orchestrator to the worker."
   type        = number
   default     = 10
 
