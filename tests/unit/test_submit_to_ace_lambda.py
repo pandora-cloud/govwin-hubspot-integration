@@ -33,6 +33,8 @@ def event_factory():
 
 @pytest.fixture
 def deal_payload() -> dict:
+    """Test deal with a per-deal Solution override so the three-call flow
+    (including AssociateOpportunity) runs regardless of catalog."""
     return {
         "id": "12345",
         "properties": {
@@ -44,6 +46,7 @@ def deal_payload() -> dict:
             "govwin_industry": "Government",
             "govwin_ace_partner_need": "Co-Sell - Technical Consultation",
             "govwin_ace_delivery_model": "Professional Services",
+            "govwin_ace_solution_id": "S-0051246",
         },
     }
 

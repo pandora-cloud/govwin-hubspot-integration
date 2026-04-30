@@ -13,7 +13,17 @@
 
 data "aws_iam_policy_document" "ace_permissions" {
   # AWS Partner Central Selling API.
+  #
+  # Split into two statements because not every action supports the
+  # partnercentral:Catalog condition key. Opportunity-level operations do
+  # (and we keep the catalog gate on those for safety). Engagement +
+  # snapshot operations, which were added more recently to the API, do
+  # not support the condition key today; the IAM evaluator denies the
+  # action when it can't evaluate the condition. The catalog-resource
+  # ARN structure (arn:aws:partnercentral:us-east-1::catalog/Sandbox/...)
+  # still scopes who can read/write what at the resource level.
   statement {
+    sid = "OpportunityOperationsCatalogGated"
     actions = [
       "partnercentral:CreateOpportunity",
       "partnercentral:UpdateOpportunity",
@@ -22,19 +32,47 @@ data "aws_iam_policy_document" "ace_permissions" {
       "partnercentral:ListSolutions",
       "partnercentral:AssociateOpportunity",
       "partnercentral:DisassociateOpportunity",
-      "partnercentral:StartEngagementFromOpportunityTask",
-      "partnercentral:StartEngagementByAcceptingInvitationTask",
+      "partnercentral:AssignOpportunity",
+      "partnercentral:SubmitOpportunity",
+      "partnercentral:RejectEngagementInvitation",
       "partnercentral:GetEngagementInvitation",
       "partnercentral:ListEngagementInvitations",
-      "partnercentral:RejectEngagementInvitation",
       "partnercentral:GetAwsOpportunitySummary",
     ]
-    resources = ["*"] # see file header; mitigated by the Catalog condition below.
+    resources = ["*"]
     condition {
       test     = "StringEquals"
       variable = "partnercentral:Catalog"
       values   = [var.ace_catalog]
     }
+  }
+  statement {
+    sid = "EngagementAndSnapshotOperations"
+    # These actions do not currently support the partnercentral:Catalog
+    # condition key. Granted unconditionally so StartEngagementFromOpportunityTask
+    # (which internally calls CreateEngagement + CreateResourceSnapshot) can
+    # complete. Catalog isolation for these operations relies on the
+    # catalog-prefixed ARN of the underlying engagement, which AWS ties back
+    # to the opportunity created in the same catalog.
+    actions = [
+      "partnercentral:CreateEngagement",
+      "partnercentral:CreateEngagementInvitation",
+      "partnercentral:AcceptEngagementInvitation",
+      "partnercentral:GetEngagement",
+      "partnercentral:ListEngagements",
+      "partnercentral:StartEngagementFromOpportunityTask",
+      "partnercentral:StartEngagementByAcceptingInvitationTask",
+      "partnercentral:ListEngagementByAcceptingInvitationTasks",
+      "partnercentral:ListEngagementFromOpportunityTasks",
+      "partnercentral:CreateResourceSnapshot",
+      "partnercentral:CreateResourceSnapshotJob",
+      "partnercentral:StartResourceSnapshotJob",
+      "partnercentral:GetResourceSnapshot",
+      "partnercentral:GetResourceSnapshotJob",
+      "partnercentral:ListResourceSnapshots",
+      "partnercentral:ListResourceSnapshotJobs",
+    ]
+    resources = ["*"]
   }
 
   # SQS for the submission and update queues.
