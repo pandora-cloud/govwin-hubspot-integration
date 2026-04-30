@@ -2,6 +2,12 @@
 
 One-time setup that prepares an AWS account for deploying the GovWin -> HubSpot -> AWS Partner Central integration with proper least-privilege IAM. Run this **once per environment** (e.g. once for dev, once for prod) before running anything in `terraform/`.
 
+## Production MFA gate
+
+The deployer role's trust policy requires MFA on assume by default. This is the production posture and must not be relaxed for `environment = "prod"`. The bootstrap module now enforces this with a Terraform `precondition` — apply fails if you try to deploy with `environment = "prod"` and `require_mfa_to_assume_deployer = false`.
+
+For sandbox or dev environments, you may flip `require_mfa_to_assume_deployer = false` so that long-lived access keys without MFA can assume the deployer role for fast iteration.
+
 ## What it creates
 
 | Resource | Purpose |

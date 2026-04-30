@@ -36,6 +36,7 @@ _PERMANENT_ERROR_CODES: set[str] = {
     "ValidationException",
     "AccessDeniedException",
     "ResourceNotFoundException",
+    "BadRequestException",
 }
 
 
