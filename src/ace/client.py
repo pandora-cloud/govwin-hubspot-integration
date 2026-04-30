@@ -325,7 +325,31 @@ class ACEClient:
             "LifeCycle",
             "PartnerOpportunityIdentifier",
         }
-        return {k: v for k, v in current.items() if k in allowed}
+        scrubbed = {k: v for k, v in current.items() if k in allowed}
+
+        # AWS sometimes returns a stub ExpectedCustomerSpend entry with
+        # only CurrencyCode populated (e.g. for opportunities created
+        # without an Amount). UpdateOpportunity's boto3 client-side
+        # validator rejects entries missing required Amount / Frequency /
+        # TargetCompany. Drop incomplete entries; if the resulting list
+        # is empty, drop the field entirely.
+        project = scrubbed.get("Project")
+        if isinstance(project, dict):
+            spend = project.get("ExpectedCustomerSpend")
+            if isinstance(spend, list):
+                cleaned = [
+                    e for e in spend
+                    if isinstance(e, dict)
+                    and e.get("Amount")
+                    and e.get("Frequency")
+                    and e.get("TargetCompany")
+                ]
+                if cleaned:
+                    project["ExpectedCustomerSpend"] = cleaned
+                else:
+                    project.pop("ExpectedCustomerSpend", None)
+
+        return scrubbed
 
     @staticmethod
     def _raise_api_error(op: str, exc: ClientError) -> NoReturn:

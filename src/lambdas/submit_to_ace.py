@@ -28,6 +28,7 @@ from botocore.exceptions import ClientError
 from src.ace.client import ACEAPIError, ACEClient
 from src.ace.mapper import (
     ACEMappingError,
+    aws_products_for_deal,
     map_hubspot_deal_to_ace_create_payload,
     resolve_solution_id,
 )
@@ -96,28 +97,76 @@ def _is_submit_trigger(hs_event: dict[str, Any]) -> bool:
     return new_value in _trigger_stages()
 
 
+_DEAL_PROPERTIES_FOR_MAPPING = [
+    "dealname",
+    "amount",
+    "closedate",
+    "description",
+    "dealstage",
+    "hubspot_owner_id",
+    "govwin_opp_id",
+    "govwin_iq_opp_id",
+    "govwin_agency",
+    "govwin_industry",
+    "govwin_primary_requirement",
+    "govwin_ace_partner_need",
+    "govwin_ace_delivery_model",
+    "govwin_ace_solution_id",
+    "govwin_ace_solution",  # legacy alias
+    "govwin_ace_use_case",
+    "govwin_ace_other_solution_description",
+    "govwin_ace_opportunity_type",
+    # SaaSify-parity additions:
+    "govwin_ace_marketing_source",
+    "govwin_ace_marketing_campaign_name",
+    "govwin_ace_marketing_use_cases",
+    "govwin_ace_marketing_channel",
+    "govwin_ace_marketing_dev_funded",
+    "govwin_ace_competitor_name",
+    "govwin_ace_additional_comments",
+    "govwin_ace_aws_account_id",
+    "govwin_ace_next_steps",
+    "govwin_ace_related_opportunity_id",
+    "govwin_ace_aws_products",
+]
+
+_COMPANY_PROPERTIES_FOR_MAPPING = [
+    "name", "industry", "domain", "website",
+    "address", "city", "state", "zip", "country",
+]
+
+_CONTACT_PROPERTIES_FOR_MAPPING = [
+    "firstname", "lastname", "email", "phone", "jobtitle",
+]
+
+
 def _load_deal(hubspot: HubSpotClient, deal_id: str) -> dict[str, Any]:
     """Fetch a deal with the properties we need for ACE mapping."""
-    properties = [
-        "dealname",
-        "amount",
-        "closedate",
-        "description",
-        "dealstage",
-        "govwin_opp_id",
-        "govwin_iq_opp_id",
-        "govwin_agency",
-        "govwin_industry",
-        "govwin_primary_requirement",
-        "govwin_ace_partner_need",
-        "govwin_ace_delivery_model",
-        "govwin_ace_solution_id",
-        "govwin_ace_solution",  # legacy alias
-        "govwin_ace_use_case",  # CustomerUseCase override
-        "govwin_ace_other_solution_description",
-        "govwin_ace_opportunity_type",
-    ]
-    return hubspot.get_deal(deal_id, properties=properties)
+    return hubspot.get_deal(deal_id, properties=_DEAL_PROPERTIES_FOR_MAPPING)
+
+
+def _load_associated_records(
+    hubspot: HubSpotClient, deal_id: str, deal: dict[str, Any]
+) -> tuple[dict[str, Any] | None, list[dict[str, Any]], dict[str, Any] | None]:
+    """Fetch the deal's associated company, contacts, and owner.
+
+    Each fetch is best-effort: if HubSpot returns 404 or the association
+    doesn't exist yet, we fall through with None / [] rather than blocking
+    the submission. The mapper handles missing associated records by
+    falling back to GovWin-derived deal properties.
+    """
+    company = hubspot.get_associated_company(
+        deal_id, properties=_COMPANY_PROPERTIES_FOR_MAPPING
+    )
+    contacts = hubspot.get_associated_contacts(
+        deal_id, properties=_CONTACT_PROPERTIES_FOR_MAPPING
+    )
+    owner_id = ""
+    props = deal.get("properties") or deal
+    if isinstance(props, dict):
+        owner_id = str(props.get("hubspot_owner_id") or "")
+    owner = hubspot.get_owner(owner_id) if owner_id else None
+    return company, contacts, owner
 
 
 def _process_event(
@@ -151,9 +200,15 @@ def _process_event(
 
     # Step 2: CreateOpportunity if we don't already have an Id.
     if not ace_opportunity_id:
+        company, contacts, owner = _load_associated_records(hubspot, deal_id, deal)
         try:
             payload = map_hubspot_deal_to_ace_create_payload(
-                deal, config, client_token=create_token
+                deal,
+                config,
+                client_token=create_token,
+                company=company,
+                contacts=contacts,
+                owner=owner,
             )
         except ACEMappingError as exc:
             logger.warning("ACE mapping failed for deal %s: %s", deal_id, exc)
@@ -175,6 +230,20 @@ def _process_event(
             client_token=create_token,
             hubspot_deal_id=deal_id,
         )
+        # Surface the AWS-side identifiers on the HubSpot deal immediately
+        # so BD doesn't have to wait for an EventBridge round-trip to see
+        # the opportunity in their CRM. handle_ace_event will update
+        # govwin_aws_cosell_status on subsequent ReviewStatus changes.
+        try:
+            hubspot.update_deal(deal_id, {
+                "govwin_aws_cosell_id": str(ace_opportunity_id),
+                "govwin_aws_cosell_status": "Pending Submission",
+            })
+        except Exception:  # noqa: BLE001 -- write-back is best-effort
+            logger.exception(
+                "submit_to_ace: write-back of aws_cosell_id failed for deal %s",
+                deal_id,
+            )
         logger.info("ace.created opportunity_id=%s govwin_id=%s", ace_opportunity_id, govwin_id)
         mapping = state.get_ace_mapping(govwin_id) or mapping
 
@@ -210,6 +279,33 @@ def _process_event(
             "OtherSolutionDescription on opp=%s",
             ace_opportunity_id,
         )
+
+    # Step 3b: AssociateOpportunity for any BD-tagged AWS products. Idempotent
+    # via ConflictException -- a redelivered SQS message won't re-associate.
+    aws_products = aws_products_for_deal(deal)
+    if aws_products and not mapping.get("ace_task_id"):
+        for product_id in aws_products:
+            try:
+                ace.associate_opportunity(
+                    opportunity_identifier=str(ace_opportunity_id),
+                    related_entity_identifier=product_id,
+                    related_entity_type="AwsProducts",
+                )
+                logger.info(
+                    "ace.associated awsproduct=%s opp=%s",
+                    product_id,
+                    ace_opportunity_id,
+                )
+            except ACEAPIError as exc:
+                if exc.code == "ConflictException":
+                    continue  # already associated
+                # Don't fail the whole submission if one product is invalid;
+                # log and move on. AWS will accept the rest.
+                logger.warning(
+                    "ace.associate awsproduct=%s failed (continuing): %s",
+                    product_id,
+                    exc,
+                )
 
     # Step 4: StartEngagementFromOpportunityTask. Reuse a persisted task token
     # so that an SQS retry hits the same idempotency key on the AWS side.
