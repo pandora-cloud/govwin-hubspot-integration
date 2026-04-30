@@ -20,13 +20,16 @@ resource "aws_iam_role" "deployer" {
 
   lifecycle {
     # Production environments must require MFA on assume. The require_mfa
-    # variable can be set to false ONLY for non-prod (sandbox/dev/test).
+    # variable can be set to false ONLY for non-prod (sandbox/dev/test), or
+    # for an explicitly-acknowledged sandbox-only window via the
+    # acknowledge_no_mfa_for_sandbox_only escape hatch.
     precondition {
       condition = !(
         var.environment == "prod"
         && var.require_mfa_to_assume_deployer == false
+        && var.acknowledge_no_mfa_for_sandbox_only == false
       )
-      error_message = "require_mfa_to_assume_deployer must be true when environment == prod."
+      error_message = "require_mfa_to_assume_deployer must be true when environment == prod (or set acknowledge_no_mfa_for_sandbox_only = true for a sandbox-only window)."
     }
   }
 
@@ -425,6 +428,7 @@ resource "aws_iam_role_policy" "deployer_iam" {
           "iam:AttachRolePolicy",
           "iam:DetachRolePolicy",
           "iam:ListAttachedRolePolicies",
+          "iam:ListInstanceProfilesForRole",
           "iam:TagRole",
           "iam:UntagRole",
           "iam:ListRoleTags",

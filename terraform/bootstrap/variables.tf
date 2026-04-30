@@ -50,6 +50,18 @@ variable "require_mfa_to_assume_deployer" {
   default     = true
 }
 
+variable "acknowledge_no_mfa_for_sandbox_only" {
+  description = <<-EOT
+    Explicit override that lets `environment == "prod"` apply without MFA on
+    the deployer role's trust policy. Only acceptable when the account is
+    being used purely for sandbox testing of the integration before any real
+    AWS Partner Central data exists. Flip to false (or delete the variable)
+    before any real production traffic reaches the account.
+  EOT
+  type        = bool
+  default     = false
+}
+
 variable "state_bucket_force_destroy" {
   description = "Allow terraform destroy to delete a non-empty state bucket. Default false; flip only for tear-down testing."
   type        = bool
