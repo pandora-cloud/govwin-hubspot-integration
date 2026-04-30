@@ -282,36 +282,62 @@ DEAL_PROPERTIES: list[HubSpotProperty] = [
             "Migration / Database Migration). See "
             "src/ace/mapper.py:ALLOWED_CUSTOMER_USE_CASES for the full list."
         ),
+        # All 39 AWS-accepted CustomerUseCase values, sourced from the
+        # API's ValidationException error message (this is a server-side
+        # enum, not in the boto3 service model). Refresh this list by
+        # calling CreateOpportunity with an invalid value to see the
+        # current accepted set; mirror any change here AND in
+        # src/ace/mapper.py:ALLOWED_CUSTOMER_USE_CASES.
+        # Note: do NOT add an "Other" option. AWS rejects any value
+        # outside this enum at CreateOpportunity time. The mapper falls
+        # back to "Migration / Database Migration" silently when the
+        # property is left blank.
         options=[
-            {"label": "Migration / Database Migration", "value": "Migration / Database Migration"},
-            {"label": "Security & Compliance", "value": "Security & Compliance"},
-            {"label": "Containers & Serverless", "value": "Containers & Serverless"},
-            {
-                "label": "AI Machine Learning and Analytics",
-                "value": "AI Machine Learning and Analytics",
-            },
-            {
-                "label": "Networking",
-                "value": "Networking",
-            },
-            {
-                "label": "Database",
-                "value": "Database",
-            },
-            {
-                "label": "Storage & Backup",
-                "value": "Storage & Backup",
-            },
-            {
-                "label": "Web development & DevOps",
-                "value": "Web development & DevOps",
-            },
-            # Note: do NOT add an "Other" option. AWS treats CustomerUseCase
-            # as a closed enum (no companion OtherCustomerUseCase free-text
-            # field), so any value not listed in
-            # src/ace/mapper.py:ALLOWED_CUSTOMER_USE_CASES would be rejected
-            # at CreateOpportunity time. The mapper falls back to "Migration
-            # / Database Migration" silently if the property is left blank.
+            {"label": v, "value": v}
+            for v in sorted([
+                "AI Machine Learning and Analytics",
+                "Archiving",
+                "Big Data: Data Warehouse / Data Integration / ETL / Data Lake / BI",
+                "Blockchain",
+                "Business Applications: Mainframe Modernization",
+                "Business Applications & Contact Center",
+                "Business Applications & SAP Production",
+                "Centralized Operations Management",
+                "Cloud Management Tools",
+                (
+                    "Cloud Management Tools & DevOps with Continuous Integration "
+                    "& Continuous Delivery (CICD)"
+                ),
+                "Configuration, Compliance & Auditing",
+                "Connected Services",
+                "Containers & Serverless",
+                "Content Delivery & Edge Services",
+                "Database",
+                "Edge Computing / End User Computing",
+                "Energy",
+                "Enterprise Governance & Controls",
+                "Enterprise Resource Planning",
+                "Financial Services",
+                "Healthcare and Life Sciences",
+                "High Performance Computing",
+                "Hybrid Application Platform",
+                "Industrial Software",
+                "IOT",
+                "Manufacturing, Supply Chain and Operations",
+                "Media & High performance computing (HPC)",
+                "Migration / Database Migration",
+                "Monitoring, logging and performance",
+                "Monitoring & Observability",
+                "Networking",
+                "Outpost",
+                "SAP",
+                "Security & Compliance",
+                "Storage & Backup",
+                "Training",
+                "VMC",
+                "VMWare",
+                "Web development & DevOps",
+            ])
         ],
     ),
     HubSpotProperty(

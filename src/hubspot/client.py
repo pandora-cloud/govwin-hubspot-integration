@@ -169,7 +169,15 @@ class HubSpotClient:
                 raise
 
     def ensure_property(self, object_type: str, prop: HubSpotProperty) -> None:
-        """Create a custom property if it doesn't exist."""
+        """Create a custom property; if it already exists, PATCH it so option
+        sets, descriptions, and labels stay in sync with code.
+
+        Without the PATCH path, adding a new dropdown option in code never
+        propagated -- HubSpot returned 409 on every redeploy and we silently
+        kept the old option set. The mapper would then accept values the
+        BD dropdown didn't expose, causing confusing "value not in enum"
+        errors only after a CreateOpportunity round-trip.
+        """
         payload: dict[str, Any] = {
             "name": prop.name,
             "label": prop.label,
@@ -186,11 +194,33 @@ class HubSpotClient:
         try:
             self._post(f"crm/v3/properties/{object_type}", payload)
             logger.info("Created property %s on %s", prop.name, object_type)
+            return
         except HubSpotAPIError as e:
-            if e.status_code == 409:
-                logger.debug("Property %s already exists on %s", prop.name, object_type)
-            else:
+            if e.status_code != 409:
                 raise
+
+        # Property already exists. PATCH to sync options / label / description.
+        # HubSpot's PATCH endpoint accepts the same body shape minus 'name'
+        # (name is in the URL) and 'type' (immutable). hasUniqueValue is
+        # also not patchable -- HubSpot rejects attempts to flip it.
+        update_payload = {
+            k: v for k, v in payload.items() if k not in {"name", "type", "hasUniqueValue"}
+        }
+        try:
+            self._patch(
+                f"crm/v3/properties/{object_type}/{prop.name}",
+                update_payload,
+            )
+            logger.info("Updated property %s on %s", prop.name, object_type)
+        except HubSpotAPIError as e:
+            # Some property fields are immutable post-creation (e.g.
+            # fieldType for enumeration properties created without options
+            # cannot later be changed). Log and continue rather than fail
+            # the whole bootstrap.
+            logger.warning(
+                "Could not patch existing property %s on %s: %s",
+                prop.name, object_type, e,
+            )
 
     def ensure_all_properties(self) -> None:
         """Create all custom properties and groups for all object types."""
@@ -315,6 +345,34 @@ class HubSpotClient:
         if properties:
             params["properties"] = ",".join(properties)
         return self._get(f"crm/v3/objects/deals/{deal_id}", params=params)
+
+    def is_deal_archived(self, deal_id: str) -> bool:
+        """Return True if the deal exists in HubSpot's archive but not in the
+        active set. HubSpot's CRM v3 API surfaces archived records under a
+        separate ``archived=true`` query; the active fetch returns 404 for an
+        archived id. This is the cheapest way to disambiguate "archived" from
+        "never existed" without falling back to the search API.
+        """
+        try:
+            self._get(
+                f"crm/v3/objects/deals/{deal_id}",
+                params={"archived": "false"},
+            )
+            return False  # found in active set; not archived
+        except HubSpotAPIError as exc:
+            if exc.status_code != 404:
+                raise
+        # Active fetch returned 404. Check the archive.
+        try:
+            self._get(
+                f"crm/v3/objects/deals/{deal_id}",
+                params={"archived": "true"},
+            )
+            return True
+        except HubSpotAPIError as exc:
+            if exc.status_code == 404:
+                return False  # never existed
+            raise
 
     def update_deal(self, deal_id: str, properties: dict[str, Any]) -> dict[str, Any]:
         """Patch a single deal's properties."""

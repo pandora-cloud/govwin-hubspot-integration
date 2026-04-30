@@ -47,10 +47,14 @@ _DEALSTAGE_BY_AWS_REVIEW: dict[str, str] = {
 
 def _update_hubspot_stage(
     hubspot: HubSpotClient, deal_id: str, target_label: str
-) -> bool:
+) -> tuple[bool, str | None]:
     """Resolve a stage label to its pipeline ID and patch the deal.
 
-    Returns False if the label is not present in the configured pipeline.
+    Returns ``(success, reason)``. ``success`` is True when the deal was
+    patched, False when the call was a deliberate no-op (stage label not in
+    the configured pipeline, or deal is archived in HubSpot). Archived deals
+    are an expected end-state -- BD has dispositioned the opp in HubSpot --
+    and must not fire SNS alerts.
     """
     stage_id = hubspot.get_stage_id_by_label(target_label)
     if not stage_id:
@@ -59,9 +63,17 @@ def _update_hubspot_stage(
             target_label,
             deal_id,
         )
-        return False
+        return False, "stage label not in pipeline"
+    # Cheap pre-flight: avoid update_deal on an archived deal so a stale
+    # AWS-side EventBridge event doesn't surface as a 404 / SNS alert.
+    if hubspot.is_deal_archived(deal_id):
+        logger.info(
+            "handle_ace_event: deal %s is archived in HubSpot; skipping stage update",
+            deal_id,
+        )
+        return False, "deal archived in HubSpot"
     hubspot.update_deal(deal_id, {"dealstage": stage_id})
-    return True
+    return True, None
 
 
 def _handle_opportunity_event(
@@ -112,8 +124,9 @@ def _handle_opportunity_event(
             "status": "skipped",
             "reason": f"no HubSpot stage label maps to ReviewStatus={review_status!r}",
         }
-    if not _update_hubspot_stage(hubspot, str(deal_id), target_stage):
-        return {"status": "skipped", "reason": "stage missing in pipeline"}
+    success, reason = _update_hubspot_stage(hubspot, str(deal_id), target_stage)
+    if not success:
+        return {"status": "skipped", "reason": reason or "stage update no-op"}
 
     last_modified = full.get("LastModifiedDate")
     state.update_ace_mapping(
@@ -171,8 +184,9 @@ def _handle_invitation_event(
     deal_id = mapping.get("hubspot_deal_id")
     if not deal_id:
         return {"status": "skipped", "reason": "no hubspot deal mapping"}
-    if not _update_hubspot_stage(hubspot, str(deal_id), target_stage):
-        return {"status": "skipped", "reason": "stage missing in pipeline"}
+    success, reason = _update_hubspot_stage(hubspot, str(deal_id), target_stage)
+    if not success:
+        return {"status": "skipped", "reason": reason or "stage update no-op"}
     return {"status": "updated", "deal_id": deal_id, "stage": target_stage}
 
 
