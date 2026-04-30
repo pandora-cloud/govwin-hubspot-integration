@@ -9,7 +9,14 @@ import pytest
 import respx
 from moto import mock_aws
 
-from src.config import AppConfig, AWSConfig, GovWinConfig, HubSpotConfig, SyncConfig
+from src.config import (
+    ACEConfig,
+    AppConfig,
+    AWSConfig,
+    GovWinConfig,
+    HubSpotConfig,
+    SyncConfig,
+)
 
 
 @pytest.fixture
@@ -28,8 +35,14 @@ def app_config() -> AppConfig:
             govwin_secret_name="test/govwin",
             hubspot_secret_name="test/hubspot",
             govwin_tokens_secret_name="test/govwin-tokens",
+            hubspot_webhook_secret_name="test/hubspot-webhook",
+            ace_submission_queue_url="https://sqs.us-east-1.amazonaws.com/000000000000/test-ace-submit",
         ),
         sync=SyncConfig(),
+        ace=ACEConfig(
+            catalog="Sandbox",
+            default_solution_id="S-0051246",
+        ),
         environment="test",
     )
 

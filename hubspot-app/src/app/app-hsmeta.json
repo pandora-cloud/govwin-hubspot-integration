@@ -1,0 +1,33 @@
+{
+  "uid": "govwin_hubspot_ace_webhooks_app",
+  "type": "app",
+  "config": {
+    "description": "Receives HubSpot deal-stage and property-change webhooks for the GovWin to AWS Partner Central pipeline. Validates X-HubSpot-Signature-v3 and forwards events to an AWS Lambda for ACE submission.",
+    "name": "GovWin to ACE Webhooks",
+    "distribution": "private",
+    "auth": {
+      "type": "static",
+      "requiredScopes": [
+        "oauth",
+        "crm.objects.deals.read",
+        "crm.objects.deals.write",
+        "crm.schemas.deals.read"
+      ],
+      "optionalScopes": [],
+      "conditionallyRequiredScopes": []
+    },
+    "permittedUrls": {
+      "fetch": [
+        "https://api.hubapi.com"
+      ],
+      "iframe": [],
+      "img": []
+    },
+    "support": {
+      "supportEmail": "pc@pandoracloud.net",
+      "documentationUrl": "https://pandoracloud.net",
+      "supportUrl": "https://pandoracloud.net",
+      "supportPhone": "+17657263672"
+    }
+  }
+}

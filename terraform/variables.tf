@@ -167,3 +167,71 @@ variable "tags" {
   type        = map(string)
   default     = {}
 }
+
+variable "deployer_role_arn" {
+  description = <<-EOT
+    ARN of the deployer IAM role created by terraform/bootstrap. When set,
+    the provider assumes this role for all resource operations, so the
+    terraform CLI session itself only needs sts:AssumeRole on the deployer
+    role's ARN. Leave empty to use the configured aws_profile directly
+    (e.g. during the bootstrap phase, or for ad-hoc local development).
+  EOT
+  type        = string
+  default     = ""
+}
+
+# -----------------------------------------------------------------------------
+# ACE (AWS Partner Central) configuration
+# -----------------------------------------------------------------------------
+
+variable "ace_catalog" {
+  description = "AWS Partner Central catalog: Sandbox (testing) or AWS (production)"
+  type        = string
+  default     = "Sandbox"
+  validation {
+    condition     = contains(["Sandbox", "AWS"], var.ace_catalog)
+    error_message = "ace_catalog must be Sandbox or AWS."
+  }
+}
+
+variable "ace_default_solution_id" {
+  description = "Default Partner Central Solution ID (e.g. S-0051246 for Pandora Cloud Professional Services)"
+  type        = string
+}
+
+variable "ace_default_involvement_type" {
+  description = "AWS involvement type for engagement submissions"
+  type        = string
+  default     = "Co-Sell"
+}
+
+variable "ace_default_visibility" {
+  description = "Visibility level for engagements"
+  type        = string
+  default     = "Full"
+}
+
+variable "ace_trigger_stages" {
+  description = <<-EOT
+    Comma-separated HubSpot deal stage internal IDs (numeric, HubSpot-assigned)
+    that trigger ACE submission. Production deployments MUST override this with
+    the numeric stage id from the HubSpot pipeline editor (e.g. "3590200042"
+    for a "Submit to AWS" stage in the Government pipeline). The default below
+    uses label-style placeholders so a first-deploy plan/apply succeeds before
+    the operator has created the stages; the override step is documented in
+    docs/ace-integration.md and docs/phase4-runbook.md.
+  EOT
+  type        = string
+  default     = "submit_to_aws,submitted_to_aws"
+}
+
+variable "hubspot_webhook_app_id" {
+  description = "HubSpot developer-platform app id (numeric string from hs project upload)"
+  type        = string
+}
+
+variable "hubspot_webhook_client_secret" {
+  description = "HubSpot client secret used for X-HubSpot-Signature-v3 validation"
+  type        = string
+  sensitive   = true
+}

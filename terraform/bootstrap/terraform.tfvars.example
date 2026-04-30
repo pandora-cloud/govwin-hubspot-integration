@@ -1,0 +1,20 @@
+# Bootstrap module variables.
+# Copy to terraform.tfvars (gitignored) and fill in your values.
+
+# Required: at least one IAM principal that may assume the deployer role.
+# Each entry must be a complete ARN. Adding more entries lets multiple
+# people deploy without sharing credentials.
+deployer_principal_arns = [
+  "arn:aws:iam::123456789012:user/jane.doe",
+  # "arn:aws:iam::123456789012:role/aws-reserved/sso.amazonaws.com/AWSReservedSSO_AdminAccess_xxxxxxxxxxxxxxxx",
+]
+
+# Optional defaults (uncomment to override)
+# project_name = "govwin-hubspot"
+# environment  = "prod"
+# aws_region   = "us-east-1"
+
+# tags = {
+#   CostCenter = "Federal"
+#   Owner      = "platform-team@example.com"
+# }

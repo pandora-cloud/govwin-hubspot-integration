@@ -54,6 +54,30 @@ hubspot_private_app_token = "pat-na1-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
 # notification_email   = "alerts@company.com"
 
 ###############################################################################
+# Required - AWS Partner Central (ACE) submission half
+###############################################################################
+
+# Default ACE catalog. Keep as Sandbox for dev; flip to "AWS" only on prod.
+# ace_catalog = "Sandbox"
+
+# Default solution to associate with each opportunity. Discover via:
+#   aws partnercentral-selling list-solutions --catalog AWS --region us-east-1
+ace_default_solution_id = "S-0051246"
+
+# ace_default_involvement_type = "Co-Sell"
+# ace_default_visibility       = "Full"
+# ace_trigger_stages           = "submit_to_aws,submitted_to_aws"
+
+###############################################################################
+# Required - HubSpot developer-platform webhook app (2025.2+)
+###############################################################################
+# Created via `hs project create` + `hs project upload`. After upload, copy
+# the appId and clientSecret from the HubSpot developer portal.
+
+hubspot_webhook_app_id        = "12345678"
+hubspot_webhook_client_secret = "client-secret-from-hubspot-app-settings"
+
+###############################################################################
 # Optional - Tags
 ###############################################################################
 

@@ -253,8 +253,11 @@ DEAL_PROPERTIES: list[HubSpotProperty] = [
         name="govwin_ace_partner_need",
         label="ACE Partner Need from AWS",
         type="enumeration",
-        fieldType="select",
-        description="Type of AWS support needed (manual entry for ACE submission)",
+        # AWS PrimaryNeedsFromAws is a List<String>, so the HubSpot property
+        # uses checkbox (multi-select) with semicolon-joined values that the
+        # mapper splits.
+        fieldType="checkbox",
+        description="Type(s) of AWS support needed (manual entry for ACE submission)",
         options=[
             {"label": "Architectural Validation", "value": "Architectural Validation"},
             {"label": "Business Presentation", "value": "Business Presentation"},
@@ -268,6 +271,57 @@ DEAL_PROPERTIES: list[HubSpotProperty] = [
             {"label": "Deal Support", "value": "Deal Support"},
             {"label": "Support for Public Tender", "value": "Support for Public Tender"},
         ],
+    ),
+    HubSpotProperty(
+        name="govwin_ace_use_case",
+        label="ACE Customer Use Case",
+        type="enumeration",
+        fieldType="select",
+        description=(
+            "AWS-published Customer Use Case (manual override; defaults to "
+            "Migration / Database Migration). See "
+            "src/ace/mapper.py:ALLOWED_CUSTOMER_USE_CASES for the full list."
+        ),
+        options=[
+            {"label": "Migration / Database Migration", "value": "Migration / Database Migration"},
+            {"label": "Security & Compliance", "value": "Security & Compliance"},
+            {"label": "Containers & Serverless", "value": "Containers & Serverless"},
+            {
+                "label": "AI Machine Learning and Analytics",
+                "value": "AI Machine Learning and Analytics",
+            },
+            {
+                "label": "Networking",
+                "value": "Networking",
+            },
+            {
+                "label": "Database",
+                "value": "Database",
+            },
+            {
+                "label": "Storage & Backup",
+                "value": "Storage & Backup",
+            },
+            {
+                "label": "Web development & DevOps",
+                "value": "Web development & DevOps",
+            },
+            {
+                "label": "Other (see ALLOWED_CUSTOMER_USE_CASES)",
+                "value": "Other",
+            },
+        ],
+    ),
+    HubSpotProperty(
+        name="govwin_ace_other_solution_description",
+        label="ACE Other Solution Description",
+        type="string",
+        fieldType="textarea",
+        description=(
+            "Free-text description used in place of an associated AWS Solution "
+            "(255 char max). Optional; the mapper auto-falls back to the deal "
+            "title when this is blank."
+        ),
     ),
 ]
 

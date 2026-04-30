@@ -241,6 +241,18 @@ class HubSpotClient:
         for stage in pipeline_data.get("stages", []):
             self._stage_label_to_id[stage["label"]] = stage["id"]
 
+    def get_stage_id_by_label(self, label: str) -> str | None:
+        """Return the HubSpot pipeline stage ID for an exact stage label.
+
+        Falls back to None when the label does not exist in the configured
+        pipeline. Used by the v2 ACE flow to translate AWS review-status
+        labels (e.g. "Approved by AWS") to the HubSpot internal stage id
+        we write to ``dealstage``.
+        """
+        if not self._stage_label_to_id:
+            self.ensure_pipeline()
+        return self._stage_label_to_id.get(label)
+
     def get_stage_id(self, govwin_status: str) -> str | None:
         """Map a GovWin status to a HubSpot pipeline stage ID.
 
@@ -294,6 +306,22 @@ class HubSpotClient:
                 raise
 
         return results
+
+    def get_deal(
+        self, deal_id: str, properties: list[str] | None = None
+    ) -> dict[str, Any]:
+        """Fetch a single deal by HubSpot object id with the requested properties."""
+        params: dict[str, Any] = {}
+        if properties:
+            params["properties"] = ",".join(properties)
+        return self._get(f"crm/v3/objects/deals/{deal_id}", params=params)
+
+    def update_deal(self, deal_id: str, properties: dict[str, Any]) -> dict[str, Any]:
+        """Patch a single deal's properties."""
+        return self._patch(
+            f"crm/v3/objects/deals/{deal_id}",
+            {"properties": properties},
+        )
 
     def search_deal_by_govwin_id(self, govwin_opp_id: str) -> dict[str, Any] | None:
         """Search for a deal by its GovWin opportunity ID."""
@@ -496,3 +524,37 @@ class HubSpotClient:
             "company_properties": len(COMPANY_PROPERTIES),
             "contact_properties": len(CONTACT_PROPERTIES),
         }
+
+    # -----------------------------------------------------------------------
+    # Webhook subscription management (developer-platform 2025.2+)
+    # -----------------------------------------------------------------------
+
+    def configure_webhook_settings(
+        self,
+        app_id: str,
+        target_url: str,
+        max_concurrent_requests: int = 10,
+    ) -> dict[str, Any]:
+        """Set the webhook delivery URL and throttling for a private app."""
+        return self._post(
+            f"webhooks/v3/{app_id}/settings",
+            {
+                "targetUrl": target_url,
+                "throttling": {
+                    "period": "SECONDLY",
+                    "maxConcurrentRequests": max_concurrent_requests,
+                },
+            },
+        )
+
+    def create_webhook_subscription(
+        self,
+        app_id: str,
+        subscription_details: dict[str, Any],
+        active: bool = True,
+    ) -> dict[str, Any]:
+        """Register a webhook subscription on a private app."""
+        return self._post(
+            f"webhooks/v3/{app_id}/subscriptions",
+            {"subscriptionDetails": subscription_details, "active": active},
+        )

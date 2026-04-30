@@ -199,3 +199,230 @@ class SyncStateManager:
                         "ttl": int(time.time()) + 180 * 86400,
                     }
                 )
+
+    # -----------------------------------------------------------------------
+    # ACE (AWS Partner Central) Mappings
+    # -----------------------------------------------------------------------
+
+    def get_ace_mapping(self, govwin_id: str) -> dict[str, Any] | None:
+        """Return the ACE record for a GovWin opportunity, or None if not submitted."""
+        try:
+            response = self._mappings_table.get_item(
+                Key={"pk": f"ACE#{govwin_id}", "sk": "MAPPING"}
+            )
+            item = response.get("Item")
+            return dict(item) if item else None
+        except ClientError:
+            logger.warning("Failed to read ACE mapping for %s", govwin_id)
+            return None
+
+    def update_ace_mapping(
+        self,
+        govwin_id: str,
+        *,
+        ace_opportunity_id: str | None = None,
+        last_modified_date: str | None = None,
+        ace_engagement_invitation_id: str | None = None,
+        ace_task_id: str | None = None,
+        ace_task_client_token: str | None = None,
+        client_token: str | None = None,
+        hubspot_deal_id: str | None = None,
+    ) -> None:
+        """Merge the supplied ACE fields into the mapping for ``govwin_id``.
+
+        Uses ``UpdateItem`` with SET expressions so that fields written by an
+        earlier step (CreateOpportunity, AssociateOpportunity) are preserved
+        when a later step (StartEngagement) writes its result. Pass only the
+        fields you intend to change; ``None`` values are skipped.
+        """
+        updates: dict[str, Any] = {
+            "updated_at": datetime.now(UTC).isoformat(),
+            "ttl": int(time.time()) + 365 * 86400,
+        }
+        if ace_opportunity_id is not None:
+            updates["ace_opportunity_id"] = ace_opportunity_id
+        if last_modified_date is not None:
+            updates["last_modified_date"] = last_modified_date
+        if ace_engagement_invitation_id is not None:
+            updates["ace_engagement_invitation_id"] = ace_engagement_invitation_id
+        if ace_task_id is not None:
+            updates["ace_task_id"] = ace_task_id
+        if ace_task_client_token is not None:
+            updates["ace_task_client_token"] = ace_task_client_token
+        if client_token is not None:
+            updates["client_token"] = client_token
+        if hubspot_deal_id is not None:
+            updates["hubspot_deal_id"] = hubspot_deal_id
+
+        names = {f"#k{i}": k for i, k in enumerate(updates)}
+        values = {f":v{i}": v for i, (_, v) in enumerate(updates.items())}
+        set_expr = ", ".join(
+            f"{name} = :v{i}" for i, name in enumerate(names)
+        )
+        self._mappings_table.update_item(
+            Key={"pk": f"ACE#{govwin_id}", "sk": "MAPPING"},
+            UpdateExpression=f"SET {set_expr}",
+            ExpressionAttributeNames=names,
+            ExpressionAttributeValues=values,
+        )
+
+        # Maintain reverse-lookup records so find_govwin_by_invitation_id
+        # and find_govwin_by_hubspot_deal_id can use O(1) GetItem instead
+        # of an expensive table Scan.
+        if ace_engagement_invitation_id:
+            self._put_reverse_index(
+                f"INV#{ace_engagement_invitation_id}", govwin_id
+            )
+        if hubspot_deal_id:
+            self._put_reverse_index(f"DEAL#{hubspot_deal_id}", govwin_id)
+
+    # Back-compat alias: callers that meant to overwrite still get merge
+    # semantics. New code should use ``update_ace_mapping`` directly.
+    set_ace_mapping = update_ace_mapping
+
+    def reserve_client_token(self, govwin_id: str, client_token: str) -> str:
+        """Atomically reserve a ClientToken for a pending CreateOpportunity.
+
+        Uses a conditional ``put_item`` so two concurrent SQS deliveries for
+        the same deal cannot both reserve different tokens (which would
+        otherwise mint two ACE opportunities for one GovWin opp). On
+        contention, falls back to reading the winning token.
+        """
+        try:
+            self._mappings_table.put_item(
+                Item={
+                    "pk": f"ACE#{govwin_id}",
+                    "sk": "MAPPING",
+                    "client_token": client_token,
+                    "ace_opportunity_id": "",
+                    "reserved_at": datetime.now(UTC).isoformat(),
+                    "ttl": int(time.time()) + 365 * 86400,
+                },
+                ConditionExpression=(
+                    "attribute_not_exists(pk) OR attribute_not_exists(client_token)"
+                ),
+            )
+            return client_token
+        except ClientError as exc:
+            code = exc.response.get("Error", {}).get("Code", "")
+            if code != "ConditionalCheckFailedException":
+                raise
+            existing = self.get_ace_mapping(govwin_id) or {}
+            return str(existing.get("client_token") or client_token)
+
+    def reserve_task_client_token(self, govwin_id: str, client_token: str) -> str:
+        """Reserve a ClientToken for the StartEngagementFromOpportunityTask call.
+
+        Same idempotency guarantee as ``reserve_client_token`` but scoped to
+        the engagement-task token so retries reuse it instead of regenerating.
+        """
+        existing = self.get_ace_mapping(govwin_id) or {}
+        token = existing.get("ace_task_client_token")
+        if token:
+            return str(token)
+        try:
+            self._mappings_table.update_item(
+                Key={"pk": f"ACE#{govwin_id}", "sk": "MAPPING"},
+                UpdateExpression="SET ace_task_client_token = :t",
+                ConditionExpression="attribute_not_exists(ace_task_client_token)",
+                ExpressionAttributeValues={":t": client_token},
+            )
+            return client_token
+        except ClientError as exc:
+            code = exc.response.get("Error", {}).get("Code", "")
+            if code != "ConditionalCheckFailedException":
+                raise
+            refreshed = self.get_ace_mapping(govwin_id) or {}
+            return str(refreshed.get("ace_task_client_token") or client_token)
+
+    def find_govwin_by_invitation_id(self, invitation_id: str) -> str | None:
+        """Locate the GovWin id whose ACE mapping holds this engagement invitation.
+
+        Uses an O(1) GetItem against a reverse-index record written by
+        ``update_ace_mapping`` whenever ``ace_engagement_invitation_id`` is
+        set. The reverse record's pk is ``INV#<invitation_id>`` and its
+        body carries ``govwin_id``.
+        """
+        try:
+            response = self._mappings_table.get_item(
+                Key={"pk": f"INV#{invitation_id}", "sk": "REVERSE"}
+            )
+        except ClientError:
+            logger.exception("get reverse-index for invitation %s failed", invitation_id)
+            return None
+        item = response.get("Item")
+        return _as_str(item.get("govwin_id")) if item else None
+
+    def find_govwin_by_hubspot_deal_id(self, hubspot_deal_id: str) -> str | None:
+        """Locate the GovWin id whose ACE mapping points at this HubSpot deal.
+
+        O(1) GetItem against a reverse-index record (pk
+        ``DEAL#<hubspot_deal_id>``) written by ``update_ace_mapping``.
+        """
+        try:
+            response = self._mappings_table.get_item(
+                Key={"pk": f"DEAL#{hubspot_deal_id}", "sk": "REVERSE"}
+            )
+        except ClientError:
+            logger.exception("get reverse-index for hubspot deal %s failed", hubspot_deal_id)
+            return None
+        item = response.get("Item")
+        return _as_str(item.get("govwin_id")) if item else None
+
+    def _put_reverse_index(self, pk: str, govwin_id: str) -> None:
+        """Write a reverse-lookup record. Uses the same TTL as the forward record."""
+        self._mappings_table.put_item(
+            Item={
+                "pk": pk,
+                "sk": "REVERSE",
+                "govwin_id": govwin_id,
+                "updated_at": datetime.now(UTC).isoformat(),
+                "ttl": int(time.time()) + 365 * 86400,
+            }
+        )
+
+    def is_event_seen(self, event_id: str) -> bool:
+        """Return True if we have already processed this EventBridge event id."""
+        try:
+            response = self._mappings_table.get_item(
+                Key={"pk": f"EVT#{event_id}", "sk": "SEEN"}
+            )
+            return response.get("Item") is not None
+        except ClientError:
+            return False
+
+    def mark_event_seen_atomic(self, event_id: str, ttl_seconds: int = 86400) -> bool:
+        """Atomically mark an EventBridge event id as seen.
+
+        Returns True on first sighting (caller should process the event) and
+        False if the event was already marked (caller should skip). Combines
+        the prior is_event_seen + mark_event_seen pair into a single
+        conditional write to eliminate the TOCTOU window.
+        """
+        try:
+            self._mappings_table.put_item(
+                Item={
+                    "pk": f"EVT#{event_id}",
+                    "sk": "SEEN",
+                    "seen_at": datetime.now(UTC).isoformat(),
+                    "ttl": int(time.time()) + ttl_seconds,
+                },
+                ConditionExpression="attribute_not_exists(pk)",
+            )
+            return True
+        except ClientError as exc:
+            code = exc.response.get("Error", {}).get("Code", "")
+            if code == "ConditionalCheckFailedException":
+                return False
+            raise
+
+    def mark_event_seen(self, event_id: str, ttl_seconds: int = 86400) -> None:
+        """Mark an EventBridge event id as processed (non-atomic; legacy)."""
+        self._mappings_table.put_item(
+            Item={
+                "pk": f"EVT#{event_id}",
+                "sk": "SEEN",
+                "seen_at": datetime.now(UTC).isoformat(),
+                "ttl": int(time.time()) + ttl_seconds,
+            }
+        )
