@@ -276,10 +276,6 @@ class SyncStateManager:
         if hubspot_deal_id:
             self._put_reverse_index(f"DEAL#{hubspot_deal_id}", govwin_id)
 
-    # Back-compat alias: callers that meant to overwrite still get merge
-    # semantics. New code should use ``update_ace_mapping`` directly.
-    set_ace_mapping = update_ace_mapping
-
     def reserve_client_token(self, govwin_id: str, client_token: str) -> str:
         """Atomically reserve a ClientToken for a pending CreateOpportunity.
 

@@ -69,7 +69,7 @@ class ACEConfig:
 
 @dataclass(frozen=True)
 class SyncConfig:
-    schedule: str = "rate(4 hours)"
+    schedule: str = "rate(1 hour)"
     max_concurrency: int = 2
     initial_lookback_days: int = 365
     batch_size: int = 10  # Opportunities per Step Function Map iteration (max 25 for payload limit)
