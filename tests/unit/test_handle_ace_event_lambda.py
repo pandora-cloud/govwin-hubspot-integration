@@ -39,6 +39,9 @@ def hubspot_mock() -> MagicMock:
     hs.__enter__.return_value = hs
     hs.__exit__.return_value = False
     hs.get_stage_id_by_label.return_value = "stage-id-123"
+    # Default: deal is active (not archived). Tests that need the
+    # archived path override this on the fixture.
+    hs.is_deal_archived.return_value = False
     return hs
 
 
@@ -238,4 +241,51 @@ def test_stage_label_missing_in_pipeline_warns_and_skips(
          patch.object(handle_ace_event, "HubSpotClient", return_value=hubspot_mock):
         result = handle_ace_event.handler(_opportunity_event(), context=None)
     assert result["status"] == "skipped"
+    hubspot_mock.update_deal.assert_not_called()
+
+
+def test_archived_deal_is_skipped_no_alert(
+    state_mock, ace_mock, hubspot_mock, caplog
+) -> None:
+    """An EventBridge event for a HubSpot-archived deal must be a clean
+    no-op: no update_deal call, no SNS-worthy log level, no exception. The
+    BD team has dispositioned the deal in HubSpot; further AWS-side state
+    changes are expected to be ignored.
+    """
+    hubspot_mock.is_deal_archived.return_value = True
+    with patch.object(handle_ace_event, "SyncStateManager", return_value=state_mock), \
+         patch.object(handle_ace_event, "ACEClient", return_value=ace_mock), \
+         patch.object(handle_ace_event, "HubSpotClient", return_value=hubspot_mock):
+        with caplog.at_level("INFO"):
+            result = handle_ace_event.handler(_opportunity_event(), context=None)
+    assert result["status"] == "skipped"
+    assert result["reason"] == "deal archived in HubSpot"
+    hubspot_mock.update_deal.assert_not_called()
+    # The pre-flight check must have run; otherwise update_deal would have
+    # been the path that detected the archived state via 404.
+    hubspot_mock.is_deal_archived.assert_called_once()
+    # Nothing higher than INFO should fire -- this is an expected end-state.
+    high_severity = [r for r in caplog.records if r.levelno >= 30]
+    assert not high_severity, (
+        f"unexpected WARNING/ERROR for archived deal: "
+        f"{[r.message for r in high_severity]}"
+    )
+
+
+def test_archived_deal_skipped_for_invitation_events_too(
+    state_mock, ace_mock, hubspot_mock
+) -> None:
+    """Same archived-deal short-circuit applies to invitation lifecycle
+    events, not just Opportunity Updated."""
+    hubspot_mock.is_deal_archived.return_value = True
+    state_mock.find_govwin_by_invitation_id.return_value = "OPP1"
+    state_mock.get_ace_mapping.return_value = {"hubspot_deal_id": "deal123"}
+    with patch.object(handle_ace_event, "SyncStateManager", return_value=state_mock), \
+         patch.object(handle_ace_event, "ACEClient", return_value=ace_mock), \
+         patch.object(handle_ace_event, "HubSpotClient", return_value=hubspot_mock):
+        result = handle_ace_event.handler(
+            _invitation_event("Engagement Invitation Accepted"), context=None
+        )
+    assert result["status"] == "skipped"
+    assert "archived" in result["reason"]
     hubspot_mock.update_deal.assert_not_called()

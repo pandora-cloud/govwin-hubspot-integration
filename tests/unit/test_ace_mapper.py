@@ -227,3 +227,49 @@ class TestResolveSolutionId:
         deal["properties"]["govwin_ace_solution"] = "S-9999999"  # type: ignore[index]
         deal["properties"].pop("govwin_ace_solution_id", None)  # type: ignore[union-attr]
         assert resolve_solution_id(deal, app_config) == "S-9999999"
+
+
+class TestEnumParity:
+    """Drift guards: HubSpot dropdown options must be a subset of the AWS
+    enums the mapper accepts. If these tests fail, either the AWS API
+    enum changed (update the mapper) or someone added a HubSpot option
+    that AWS won't accept (will silently get rejected by submit_to_ace).
+    """
+
+    def test_hubspot_use_case_options_are_subset_of_mapper_allowlist(self) -> None:
+        from src.ace.mapper import ALLOWED_CUSTOMER_USE_CASES
+        from src.hubspot.properties import DEAL_PROPERTIES
+
+        prop = next(p for p in DEAL_PROPERTIES if p.name == "govwin_ace_use_case")
+        hubspot_values = {opt["value"] for opt in (prop.options or [])}
+        unknown = hubspot_values - ALLOWED_CUSTOMER_USE_CASES
+        assert not unknown, (
+            f"HubSpot dropdown govwin_ace_use_case exposes values not in "
+            f"ALLOWED_CUSTOMER_USE_CASES; AWS will reject submission for "
+            f"these: {sorted(unknown)}"
+        )
+
+    def test_hubspot_partner_need_options_are_subset_of_mapper_allowlist(self) -> None:
+        from src.ace.mapper import _HUBSPOT_PARTNER_NEED_TO_AWS
+        from src.hubspot.properties import DEAL_PROPERTIES
+
+        prop = next(p for p in DEAL_PROPERTIES if p.name == "govwin_ace_partner_need")
+        hubspot_values = {opt["value"] for opt in (prop.options or [])}
+        unmapped = hubspot_values - set(_HUBSPOT_PARTNER_NEED_TO_AWS.keys())
+        assert not unmapped, (
+            f"HubSpot dropdown govwin_ace_partner_need has options the "
+            f"mapper cannot translate to AWS PrimaryNeedsFromAws values: "
+            f"{sorted(unmapped)}"
+        )
+
+    def test_hubspot_delivery_model_options_are_subset_of_mapper_allowlist(self) -> None:
+        from src.ace.mapper import ALLOWED_DELIVERY_MODELS
+        from src.hubspot.properties import DEAL_PROPERTIES
+
+        prop = next(p for p in DEAL_PROPERTIES if p.name == "govwin_ace_delivery_model")
+        hubspot_values = {opt["value"] for opt in (prop.options or [])}
+        unknown = hubspot_values - ALLOWED_DELIVERY_MODELS
+        assert not unknown, (
+            f"HubSpot dropdown govwin_ace_delivery_model exposes values "
+            f"not in ALLOWED_DELIVERY_MODELS: {sorted(unknown)}"
+        )
