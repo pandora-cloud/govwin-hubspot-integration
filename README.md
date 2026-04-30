@@ -29,15 +29,16 @@ The sync runs incrementally and respects both GovWin's 4,000 calls/hour cap and 
 
 ### Under the hood
 
-The GovWin to HubSpot half (existing v1):
+The GovWin to HubSpot half (v2.1):
 
 ![GovWin to HubSpot architecture](docs/diagrams/architecture.svg)
 
-- **AWS Step Functions** orchestrates the multi-step sync; **EventBridge** fires it on a configurable schedule.
-- **AWS Lambda (x7)** for each step: authenticate, discover changes, fetch details, sync to HubSpot, update state, setup properties, error handling.
+- **EventBridge Scheduler** fires the orchestrator Lambda on a configurable cadence (default: hourly).
+- **AWS Lambda (x2)** owns the sync: an orchestrator that does discovery + token refresh + SQS fan-out, and a worker that drains the queue, fetches each opportunity bundle from GovWin, and pushes batches to HubSpot. Concurrency is governed by `reservedConcurrentExecutions`.
+- **SQS** carries one message per opportunity batch; partial-batch failures are reported via `ReportBatchItemFailures` so a stuck batch never blocks the rest.
 - **DynamoDB** tracks sync cursors, per-opportunity update timestamps, and GovWin-to-HubSpot ID mappings.
 - **Secrets Manager** stores GovWin credentials, OAuth tokens, and the HubSpot REST token.
-- **SNS** sends email notifications; **SQS** dead-letter queue captures failed operations.
+- **SNS** sends email notifications on terminal failures; an SQS dead-letter queue captures messages that exceed the retry budget.
 
 The HubSpot to AWS Partner Central half (new in v2):
 
@@ -195,8 +196,8 @@ All configuration is managed through Terraform variables in `terraform/terraform
 | `govwin_saved_search_id` | `""` | GovWin saved search ID to filter opportunities |
 | `govwin_bookmarked_only` | `false` | Only sync bookmarked opportunities |
 | `initial_lookback_days` | `365` | Days to look back on first sync |
-| `max_concurrency` | `2` | Parallel batches in Step Function Map state (1-5) |
-| `batch_size` | `10` | Opportunities per batch (1-25) |
+| `max_concurrency` | `2` | Worker `reservedConcurrentExecutions` (1-5; bound by GovWin 4k/hour budget) |
+| `batch_size` | `10` | Opportunities per SQS message (1-25) |
 | `enable_notifications` | `true` | Enable SNS email notifications for sync events |
 | `notification_email` | `""` | Email address for sync notifications |
 | `log_retention_days` | `30` | CloudWatch log retention in days |
@@ -308,21 +309,23 @@ src/
     dedup.py                 # Change detection via updateDate comparison
     orchestrator.py          # High-level sync coordination
   lambdas/
-    authenticate.py          # Get/refresh GovWin OAuth token
-    discover_changes.py      # Search for updated opportunities
-    fetch_opp_details.py     # Fetch full opportunity data
-    sync_to_hubspot.py       # Push to HubSpot via batch APIs
-    update_sync_state.py     # Persist sync cursor to DynamoDB
-    setup_hubspot.py         # One-time property/pipeline creation
-    handle_error.py          # Error notification (SNS + SQS DLQ)
+    govwin_orchestrator.py    # EventBridge Scheduler -> discovery + token refresh + SQS fan-out
+    govwin_worker.py          # SQS -> per-batch fetch + HubSpot sync (replaces v1 fetch + sync chain)
+    setup_hubspot.py          # One-time property/pipeline creation
+    setup_hubspot_webhooks.py # One-time webhook subscription registration
+    hubspot_webhook_receiver.py # API Gateway -> validate signature -> SQS routing
+    submit_to_ace.py          # SQS -> three-call ACE submission with resume-from-step idempotency
+    update_in_ace.py          # SQS -> UpdateOpportunity with optimistic locking
+    handle_ace_event.py       # EventBridge -> mirror AWS state changes to HubSpot
 terraform/
   main.tf                    # Root module wiring
   variables.tf               # All configurable inputs
   outputs.tf                 # Terraform outputs (ARNs, URLs)
   provider.tf                # AWS provider configuration
   modules/
-    lambda/                  # Lambda functions and shared layer
-    step_function/           # Step Function state machine definition
+    lambda/                  # Shared Lambda execution role + dependency layer + source archive
+    govwin_sync/             # GovWin orchestrator + worker, SQS fan-out, EventBridge Scheduler
+    ace/                     # ACE submission half (webhook receiver, submit/update, EventBridge handler)
     dynamodb/                # DynamoDB tables
     secrets/                 # Secrets Manager secrets
     monitoring/              # SNS, SQS, CloudWatch
@@ -345,7 +348,7 @@ docs/
 
 ## Documentation
 
-- [Architecture Overview](docs/architecture.md) - System design, Step Function workflow, DynamoDB schema, rate limiting strategy
+- [Architecture Overview](docs/architecture.md) - System design, sync flow, DynamoDB schema, rate limiting strategy
 - [Field Mapping Reference](docs/field-mapping.md) - All 38 mapped properties, NAICS-to-industry codes, pipeline stages, associations
 - [Deployment Guide](docs/deployment-guide.md) - Full deployment walkthrough, credential setup, troubleshooting
 - [ACE Integration Guide](docs/ace-integration.md) - End-to-end workflow for submitting deals to AWS Partner Central
@@ -362,7 +365,7 @@ docs/
 
 ## Estimated Cost
 
-Running this integration on AWS costs approximately **$6/month** at moderate volume (around 1,000 opportunities). The main cost drivers are Lambda invocations, DynamoDB reads/writes, and Secrets Manager API calls. Step Functions, EventBridge, SNS, and SQS all fall within their free tiers at this scale. Lambda runs on ARM64 (Graviton2) for a 20% cost reduction over x86.
+Running this integration on AWS costs approximately **$6/month** at moderate volume (around 1,000 opportunities). The main cost drivers are Lambda invocations, DynamoDB reads/writes, and Secrets Manager API calls. EventBridge Scheduler, SNS, and SQS all fall within their free tiers at this scale. Lambda runs on ARM64 (Graviton2) for a 20% cost reduction over x86.
 
 ## Development
 

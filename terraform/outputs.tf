@@ -1,11 +1,21 @@
-output "step_function_arn" {
-  description = "ARN of the sync Step Function state machine"
-  value       = module.step_function.state_machine_arn
+output "govwin_orchestrator_arn" {
+  description = "ARN of the GovWin sync orchestrator Lambda (replaces the v2.0 Step Function)"
+  value       = module.govwin_sync.orchestrator_arn
 }
 
-output "step_function_name" {
-  description = "Name of the sync Step Function state machine"
-  value       = module.step_function.state_machine_name
+output "govwin_worker_arn" {
+  description = "ARN of the GovWin sync worker Lambda"
+  value       = module.govwin_sync.worker_arn
+}
+
+output "govwin_sync_queue_url" {
+  description = "SQS queue URL the orchestrator fans batches into; the worker drains it"
+  value       = module.govwin_sync.sync_queue_url
+}
+
+output "govwin_sync_schedule" {
+  description = "EventBridge Scheduler name driving the orchestrator"
+  value       = module.govwin_sync.scheduler_name
 }
 
 output "sync_state_table" {
@@ -16,11 +26,6 @@ output "sync_state_table" {
 output "entity_mappings_table" {
   description = "DynamoDB table name for entity mappings"
   value       = module.dynamodb.entity_mappings_table_name
-}
-
-output "eventbridge_rule" {
-  description = "EventBridge rule name for scheduled sync"
-  value       = module.step_function.eventbridge_rule_name
 }
 
 output "sns_topic_arn" {
