@@ -121,5 +121,6 @@ module "ace" {
   ace_trigger_stages            = var.ace_trigger_stages
   hubspot_webhook_app_id        = var.hubspot_webhook_app_id
   hubspot_webhook_client_secret = var.hubspot_webhook_client_secret
+  sns_topic_arn                 = module.monitoring.sns_topic_arn
 }
 

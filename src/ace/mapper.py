@@ -302,13 +302,32 @@ def _project_block(deal: dict[str, Any]) -> dict[str, Any]:
             project["CustomerBusinessProblem"] = text
 
     # Resolve CustomerUseCase from a HubSpot custom property override or the
-    # default ("Migration / Database Migration"). Reject deals that override
-    # to a value not in the published enum so AWS does not reject them later.
-    use_case = _get(deal, "govwin_ace_use_case") or DEFAULT_CUSTOMER_USE_CASE
-    if use_case not in ALLOWED_CUSTOMER_USE_CASES:
-        raise ACEMappingError(
-            "Invalid CustomerUseCase: value not in the AWS-published enum"
+    # default. AWS treats CustomerUseCase as a closed enum (no companion
+    # OtherCustomerUseCase free-text field), so an unknown value would be
+    # rejected by AWS at CreateOpportunity time. Two cases need handling:
+    #
+    #   1. "Other": legacy BD-UX shorthand for "I don't have a strong
+    #      opinion." Map to DEFAULT_CUSTOMER_USE_CASE silently and warn.
+    #   2. Any other unknown value: a real BD mistake or AWS enum drift.
+    #      Reject with a clear ACEMappingError so the SNS alert tells BD
+    #      what to fix.
+    use_case_raw = _get(deal, "govwin_ace_use_case") or DEFAULT_CUSTOMER_USE_CASE
+    if use_case_raw == "Other":
+        logger.warning(
+            "ace.mapper: govwin_ace_use_case='Other' is not in the AWS enum; "
+            "falling back to default %r. Update the deal in HubSpot to a "
+            "specific use case for clearer downstream attribution.",
+            DEFAULT_CUSTOMER_USE_CASE,
         )
+        use_case = DEFAULT_CUSTOMER_USE_CASE
+    elif use_case_raw not in ALLOWED_CUSTOMER_USE_CASES:
+        raise ACEMappingError(
+            f"Invalid CustomerUseCase {use_case_raw!r}: value not in the "
+            f"AWS-published enum. Update govwin_ace_use_case on the deal to "
+            f"one of: {', '.join(sorted(ALLOWED_CUSTOMER_USE_CASES))}"
+        )
+    else:
+        use_case = use_case_raw
     project["CustomerUseCase"] = use_case
 
     # AWS rejects the opportunity if neither a Solution association nor

@@ -74,6 +74,21 @@ class TestMapHubSpotDealToACECreatePayload:
         )
         assert payload["Project"]["CustomerUseCase"] == "Security & Compliance"
 
+    def test_use_case_other_falls_back_to_default(
+        self, deal: dict[str, object], app_config: AppConfig, caplog
+    ) -> None:
+        """Legacy 'Other' value (BD UX shorthand for 'I don't know which fits')
+        must NOT block submission. Mapper silently substitutes the default
+        and logs a warning so the operator sees what happened.
+        """
+        deal["properties"]["govwin_ace_use_case"] = "Other"  # type: ignore[index]
+        with caplog.at_level("WARNING"):
+            payload = map_hubspot_deal_to_ace_create_payload(
+                deal, app_config, client_token="tok"
+            )
+        assert payload["Project"]["CustomerUseCase"] == "Migration / Database Migration"
+        assert any("Other" in r.message for r in caplog.records)
+
     def test_hubspot_short_partner_need_translates_to_aws_long(
         self, deal: dict[str, object], app_config: AppConfig
     ) -> None:
