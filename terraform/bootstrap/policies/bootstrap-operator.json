@@ -1,0 +1,56 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "S3StateBucketCreate",
+      "Effect": "Allow",
+      "Action": [
+        "s3:CreateBucket",
+        "s3:PutBucketVersioning",
+        "s3:PutBucketEncryption",
+        "s3:PutBucketPublicAccessBlock",
+        "s3:PutLifecycleConfiguration",
+        "s3:PutBucketTagging",
+        "s3:PutBucketPolicy",
+        "s3:GetBucketVersioning",
+        "s3:GetEncryptionConfiguration",
+        "s3:GetBucketPublicAccessBlock",
+        "s3:GetLifecycleConfiguration",
+        "s3:GetBucketTagging",
+        "s3:GetBucketPolicy",
+        "s3:GetBucketLocation",
+        "s3:ListBucket",
+        "s3:DeleteBucket"
+      ],
+      "Resource": "arn:aws:s3:::govwin-hubspot-*-tfstate-*"
+    },
+    {
+      "Sid": "IamCreateDeployerRole",
+      "Effect": "Allow",
+      "Action": [
+        "iam:CreateRole",
+        "iam:GetRole",
+        "iam:UpdateRole",
+        "iam:UpdateAssumeRolePolicy",
+        "iam:PutRolePolicy",
+        "iam:GetRolePolicy",
+        "iam:ListRolePolicies",
+        "iam:DeleteRolePolicy",
+        "iam:DeleteRole",
+        "iam:TagRole",
+        "iam:UntagRole",
+        "iam:ListRoleTags"
+      ],
+      "Resource": "arn:aws:iam::*:role/govwin-hubspot-*-deployer"
+    },
+    {
+      "Sid": "ReadAccountContext",
+      "Effect": "Allow",
+      "Action": [
+        "sts:GetCallerIdentity",
+        "ec2:DescribeRegions"
+      ],
+      "Resource": "*"
+    }
+  ]
+}

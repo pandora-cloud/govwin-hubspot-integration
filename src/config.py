@@ -40,8 +40,31 @@ class AWSConfig:
     govwin_secret_name: str = "govwin-hubspot/govwin"
     hubspot_secret_name: str = "govwin-hubspot/hubspot"
     govwin_tokens_secret_name: str = "govwin-hubspot/govwin-tokens"
+    hubspot_webhook_secret_name: str = "govwin-hubspot/hubspot-webhook"
     sns_topic_arn: str = ""
     dlq_url: str = ""
+    ace_submission_queue_url: str = ""
+    ace_update_queue_url: str = ""
+
+
+@dataclass(frozen=True)
+class ACEConfig:
+    """AWS Partner Central Selling API configuration.
+
+    The catalog defaults to ``Sandbox`` so that any misconfigured deployment
+    cannot accidentally write to production. Pair this with the IAM policy
+    condition ``partnercentral:Catalog: Sandbox`` for dev environments.
+    """
+
+    catalog: str = "Sandbox"
+    default_solution_id: str = ""  # e.g. "S-0051246" (Pandora Cloud Professional Services)
+    default_involvement_type: str = "Co-Sell"
+    default_visibility: str = "Full"
+    default_origin: str = "Partner Referral"
+    rate_limit_writes_per_sec: int = 1
+    rate_limit_reads_per_sec: int = 10
+    webhook_max_age_seconds: int = 300  # 5-minute replay window per HubSpot docs
+    event_dedup_ttl_seconds: int = 86400  # AWS guarantees no redelivery beyond 24h
 
 
 @dataclass(frozen=True)
@@ -61,7 +84,19 @@ class AppConfig:
     hubspot: HubSpotConfig
     aws: AWSConfig
     sync: SyncConfig
+    ace: ACEConfig
     environment: str = "prod"
+
+
+_VALID_ACE_CATALOGS = {"AWS", "Sandbox"}
+
+
+def _validated_catalog(value: str) -> str:
+    if value not in _VALID_ACE_CATALOGS:
+        raise ValueError(
+            f"ACE_CATALOG must be one of {sorted(_VALID_ACE_CATALOGS)}, got {value!r}"
+        )
+    return value
 
 
 def load_config() -> AppConfig:
@@ -87,13 +122,25 @@ def load_config() -> AppConfig:
             govwin_tokens_secret_name=os.environ.get(
                 "GOVWIN_TOKENS_SECRET_NAME", "govwin-hubspot/govwin-tokens"
             ),
+            hubspot_webhook_secret_name=os.environ.get(
+                "HUBSPOT_WEBHOOK_SECRET_NAME", "govwin-hubspot/hubspot-webhook"
+            ),
             sns_topic_arn=os.environ.get("SNS_TOPIC_ARN", ""),
             dlq_url=os.environ.get("DLQ_URL", ""),
+            ace_submission_queue_url=os.environ.get("ACE_SUBMISSION_QUEUE_URL", ""),
+            ace_update_queue_url=os.environ.get("ACE_UPDATE_QUEUE_URL", ""),
         ),
         sync=SyncConfig(
             max_concurrency=int(os.environ.get("MAX_CONCURRENCY", "2")),
             initial_lookback_days=int(os.environ.get("INITIAL_LOOKBACK_DAYS", "365")),
             batch_size=int(os.environ.get("BATCH_SIZE", "10")),
+        ),
+        ace=ACEConfig(
+            catalog=_validated_catalog(os.environ.get("ACE_CATALOG", "Sandbox")),
+            default_solution_id=os.environ.get("ACE_DEFAULT_SOLUTION_ID", ""),
+            default_involvement_type=os.environ.get("ACE_DEFAULT_INVOLVEMENT_TYPE", "Co-Sell"),
+            default_visibility=os.environ.get("ACE_DEFAULT_VISIBILITY", "Full"),
+            default_origin=os.environ.get("ACE_DEFAULT_ORIGIN", "Partner Referral"),
         ),
         environment=os.environ.get("ENVIRONMENT", "prod"),
     )

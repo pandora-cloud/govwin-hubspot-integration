@@ -46,24 +46,30 @@ All GovWin-specific properties are created under the `govwin` property group in 
 | `priority` | `govwin_priority` | number | Bookmarked priority (1-5) |
 | `market` | `govwin_market` | enumeration | Federal or SLED |
 
-### ACE-Ready Properties (Deal)
+### ACE-ready properties (Deal)
 
-These properties support downstream submission to AWS Partner Central via the SaaSify ACE Connector.
+These properties feed `src/ace/mapper.py`, which builds the `CreateOpportunity` payload submitted to the AWS Partner Central Selling API directly (no SaaSify dependency).
 
-| ACE Mandatory Field | HubSpot Property | Source | Auto-populated? |
+| ACE field on the wire | HubSpot property | Source | Auto-populated? |
 |---|---|---|---|
-| Customer Company Name | Associated Company `name` | `govEntity.title` | Yes |
-| Industry Vertical | `govwin_industry` | NAICS code mapped to AWS industry | Yes |
-| Country | `govwin_country` | `country` | Yes |
-| Target Close Date | `closedate` | `pAwardDateTo` or `responseDate` | Yes |
-| Project Title | `dealname` | `title` | Yes |
-| Project Description | `description` | `description` (sanitized) | Yes |
-| Opportunity Type | `govwin_ace_opportunity_type` | Default: "Net New Business" | Yes |
-| Expected AWS Monthly Revenue | `amount` | `oppValue` x 1000 | Yes |
-| Stage | `dealstage` | Mapped from `status` | Yes |
-| Delivery Model | `govwin_ace_delivery_model` | -- | **Manual** |
-| Solution Offered | `govwin_ace_solution` | -- | **Manual** |
-| Partner Primary Need | `govwin_ace_partner_need` | -- | **Manual** |
+| `Customer.Account.CompanyName` | Associated Company `name` | `govEntity.title` | Yes |
+| `Customer.Account.Industry` | `govwin_industry` | NAICS code mapped to AWS industry | Yes |
+| `Customer.Account.Address.CountryCode` | `govwin_country` | `country` | Yes (defaulted to US) |
+| `LifeCycle.TargetCloseDate` | `closedate` | `pAwardDateTo` or `responseDate` | Yes |
+| `Project.Title` | `dealname` | `title` | Yes |
+| `Project.CustomerBusinessProblem` | `description` | `description` (sanitized) | Yes |
+| `Project.CustomerUseCase` | `description` | `description` (same as business problem; track for split) | Yes |
+| `OpportunityType` | `govwin_ace_opportunity_type` | Default: `Net New Business` | Yes |
+| `Project.ExpectedCustomerSpend[].Amount` | `amount` | `oppValue` x 1000 | Yes |
+| `PartnerOpportunityIdentifier` | `govwin_opp_id` | GovWin opp ID | Yes |
+| `Project.DeliveryModels[]` | `govwin_ace_delivery_model` | -- | **MANUAL ENTRY REQUIRED** |
+| Solution association (`AssociateOpportunity`) | `govwin_ace_solution_id` (override) or `ace_default_solution_id` | -- | **MANUAL ENTRY REQUIRED** (defaulted) |
+| `PrimaryNeedsFromAws[]` | `govwin_ace_partner_need` | -- | **MANUAL ENTRY REQUIRED** |
+| `Catalog` | -- | `ACE_CATALOG` env (`Sandbox` or `AWS`) | Auto |
+| `ClientToken` | -- | UUID, persisted in DynamoDB for idempotency | Auto |
+| `Origin` | -- | Always `Partner Referral` | Auto |
+
+The three **MANUAL ENTRY REQUIRED** fields cannot be auto-populated from GovWin data. They must come from the BD team in HubSpot before the deal moves to the **Submit to AWS** stage. The mapper validates the partner-need and delivery-model values against the AWS-published enum and rejects deals with invalid values before any API call.
 
 ### NAICS to AWS Industry Mapping
 
