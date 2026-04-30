@@ -44,9 +44,35 @@ class TestMapHubSpotDealToACECreatePayload:
         assert payload["Project"]["DeliveryModels"] == ["Professional Services"]
         assert payload["Customer"]["Account"]["CompanyName"] == "Department of Defense"
         assert payload["Customer"]["Account"]["Industry"] == "Government"
+        # CountryCode lives under Address, not flat on Account, per the
+        # AWS Partner Central Selling API shape.
+        assert payload["Customer"]["Account"]["Address"]["CountryCode"] == "US"
+        assert "CountryCode" not in payload["Customer"]["Account"]
+        # Sandbox business validation requires WebsiteUrl + full address.
+        assert payload["Customer"]["Account"]["WebsiteUrl"]
+        assert payload["Customer"]["Account"]["Address"]["PostalCode"]
+        assert payload["Customer"]["Account"]["Address"]["StateOrRegion"]
+        # CustomerUseCase must be one of the AWS-published enum, not free text.
+        assert payload["Project"]["CustomerUseCase"] == "Migration / Database Migration"
         assert payload["LifeCycle"]["TargetCloseDate"] == "2026-12-31"
         assert payload["PartnerOpportunityIdentifier"] == "OPP263150"
         assert payload["Project"]["ExpectedCustomerSpend"][0]["Amount"] == "150000.00"
+
+    def test_invalid_customer_use_case_raises(
+        self, deal: dict[str, object], app_config: AppConfig
+    ) -> None:
+        deal["properties"]["govwin_ace_use_case"] = "not in the enum"  # type: ignore[index]
+        with pytest.raises(ACEMappingError, match="Invalid CustomerUseCase"):
+            map_hubspot_deal_to_ace_create_payload(deal, app_config, client_token="tok")
+
+    def test_use_case_override_accepted(
+        self, deal: dict[str, object], app_config: AppConfig
+    ) -> None:
+        deal["properties"]["govwin_ace_use_case"] = "Security & Compliance"  # type: ignore[index]
+        payload = map_hubspot_deal_to_ace_create_payload(
+            deal, app_config, client_token="tok"
+        )
+        assert payload["Project"]["CustomerUseCase"] == "Security & Compliance"
 
     def test_missing_partner_need_raises(
         self, deal: dict[str, object], app_config: AppConfig

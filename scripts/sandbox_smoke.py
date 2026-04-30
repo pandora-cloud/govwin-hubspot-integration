@@ -65,13 +65,18 @@ def _build_create_payload(client_token: str) -> dict[str, Any]:
             "Account": {
                 "CompanyName": "Sandbox Smoke Test Customer",
                 "Industry": "Government",
-                "CountryCode": "US",
+                "WebsiteUrl": "https://www.usa.gov",
+                "Address": {
+                    "CountryCode": "US",
+                    "PostalCode": "20001",
+                    "StateOrRegion": "Dist. of Columbia",
+                },
             }
         },
         "Project": {
             "Title": "Sandbox smoke: AWS migration for federal customer",
             "CustomerBusinessProblem": "Smoke-test opportunity created by sandbox_smoke.py",
-            "CustomerUseCase": "Smoke-test opportunity created by sandbox_smoke.py",
+            "CustomerUseCase": "Migration / Database Migration",
             "DeliveryModels": ["Professional Services"],
             "ExpectedCustomerSpend": [
                 {
@@ -207,11 +212,15 @@ def cleanup(client: Any, opp_id: str) -> None:
     print(f"Cleanup: marking {opp_id} as Closed Lost")
     try:
         current = client.get_opportunity(Catalog=CATALOG, Identifier=opp_id)
+        # "Closed Lost" is a Stage enum value, not a ReviewStatus value.
         client.update_opportunity(
             Catalog=CATALOG,
             Identifier=opp_id,
             LastModifiedDate=current["LastModifiedDate"],
-            LifeCycle={"ReviewStatus": "Closed Lost", "ClosedLostReason": "Other"},
+            LifeCycle={
+                "Stage": "Closed Lost",
+                "ClosedLostReason": "Delay / Cancellation of Project",
+            },
         )
         _ok("marked closed lost", opp_id)
     except ClientError as exc:
