@@ -209,7 +209,14 @@ def _project_block(deal: dict[str, Any]) -> dict[str, Any]:
     if description:
         # CustomerBusinessProblem is free text; CustomerUseCase is an
         # AWS-published enum (different from a free-text description).
-        project["CustomerBusinessProblem"] = description[:1500]
+        # Server-side regex requires 20-2000 chars, so deals with very
+        # short descriptions get padded with the deal title for context.
+        text = description[:2000]
+        if len(text) < 20:
+            title_for_pad = title[:200]
+            text = f"{title_for_pad}: {text}"[:2000]
+        if len(text) >= 20:
+            project["CustomerBusinessProblem"] = text
 
     # Resolve CustomerUseCase from a HubSpot custom property override or the
     # default ("Migration / Database Migration"). Reject deals that override

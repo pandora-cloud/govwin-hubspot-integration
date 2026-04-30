@@ -57,7 +57,11 @@ def _build_create_payload(client_token: str) -> dict[str, Any]:
     return {
         "Catalog": CATALOG,
         "ClientToken": client_token,
-        "Origin": "AWS Referral",  # Sandbox accepts AWS Referral; prod requires Partner Referral
+        # Partner Referral = we (Pandora) are originating this opportunity.
+        # Do NOT use "AWS Referral" here even in Sandbox: that flow places
+        # the opportunity in a separate incoming-invitation inbox not
+        # visible to GetOpportunity until accepted.
+        "Origin": "Partner Referral",
         "OpportunityType": "Net New Business",
         "PrimaryNeedsFromAws": ["Co-Sell - Technical Consultation"],
         "PartnerOpportunityIdentifier": f"SMOKE-{uuid.uuid4().hex[:8]}",
@@ -102,6 +106,9 @@ def scenario_1_create(client: Any) -> dict[str, Any]:
     if not response.get("Id") or not response.get("LastModifiedDate"):
         raise RuntimeError(f"missing Id or LastModifiedDate in response: {response}")
     _ok("created", f"Id={response['Id']}")
+    # AWS Partner Central is eventually consistent: GetOpportunity right after
+    # CreateOpportunity can return ResourceNotFoundException for a few seconds.
+    time.sleep(5)
     return response
 
 
@@ -140,30 +147,86 @@ def scenario_3_start_engagement(client: Any, opp_id: str) -> dict[str, Any]:
     return response
 
 
+def _get_with_retry(client: Any, opp_id: str, attempts: int = 6) -> dict[str, Any]:
+    """GetOpportunity with backoff for the eventual-consistency window."""
+    last_error: Exception | None = None
+    for i in range(attempts):
+        try:
+            return client.get_opportunity(Catalog=CATALOG, Identifier=opp_id)
+        except ClientError as exc:
+            code = exc.response.get("Error", {}).get("Code", "")
+            if code != "ResourceNotFoundException":
+                raise
+            last_error = exc
+            wait = 5 * (i + 1)  # 5, 10, 15, 20, 25, 30 seconds
+            print(f"  [WAIT] {opp_id} not yet visible (attempt {i+1}/{attempts}); sleeping {wait}s")
+            time.sleep(wait)
+    assert last_error is not None
+    raise last_error
+
+
+def _scrub_for_update(current: dict[str, Any]) -> dict[str, Any]:
+    """Reduce a GetOpportunity response to the fields UpdateOpportunity accepts.
+
+    UpdateOpportunity uses PUT semantics (omitted fields are treated as
+    cleared) but the input schema is narrower than the GetOpportunity
+    response. The valid Update params per the boto3 service model are:
+    Catalog, Identifier, LastModifiedDate (passed by the caller),
+    PrimaryNeedsFromAws, NationalSecurity, Customer, Project,
+    OpportunityType, Marketing, SoftwareRevenue, LifeCycle.
+    PartnerOpportunityIdentifier is technically allowed but immutable.
+    """
+    allowed = {
+        "PrimaryNeedsFromAws",
+        "NationalSecurity",
+        "Customer",
+        "Project",
+        "OpportunityType",
+        "Marketing",
+        "SoftwareRevenue",
+        "LifeCycle",
+    }
+    return {k: v for k, v in current.items() if k in allowed}
+
+
 def scenario_4_update_with_optimistic_lock(client: Any, opp_id: str) -> str:
-    """Returns the new LastModifiedDate after a successful update."""
+    """Returns the new LastModifiedDate after a successful update.
+
+    UpdateOpportunity has PUT semantics: omitted fields are treated as being
+    cleared. We fetch the current opportunity, mutate only the field we
+    want to change, and send the full payload back.
+    """
     print("Scenario 4: UpdateOpportunity with optimistic locking (positive)")
-    current = client.get_opportunity(Catalog=CATALOG, Identifier=opp_id)
+    current = _get_with_retry(client, opp_id)
     original_lmd = current["LastModifiedDate"]
+    payload = _scrub_for_update(current)
+    project = dict(payload.get("Project") or {})
+    project["Title"] = "Sandbox smoke: title updated by scenario 4"
+    payload["Project"] = project
     response = client.update_opportunity(
         Catalog=CATALOG,
         Identifier=opp_id,
         LastModifiedDate=original_lmd,
-        Project={"Title": "Sandbox smoke: title updated by scenario 4"},
+        **payload,
     )
-    new_lmd = response.get("LastModifiedDate") or current["LastModifiedDate"]
+    new_lmd = response.get("LastModifiedDate") or original_lmd
     _ok("updated", f"opp={opp_id}")
     return str(new_lmd)
 
 
 def scenario_5_stale_lock(client: Any, opp_id: str, stale_lmd: str) -> None:
     print("Scenario 5: UpdateOpportunity with stale lock (negative)")
+    fresh = _get_with_retry(client, opp_id)
+    payload = _scrub_for_update(fresh)
+    project = dict(payload.get("Project") or {})
+    project["Title"] = "should fail"
+    payload["Project"] = project
     try:
         client.update_opportunity(
             Catalog=CATALOG,
             Identifier=opp_id,
             LastModifiedDate=stale_lmd,
-            Project={"Title": "should fail"},
+            **payload,
         )
         raise RuntimeError("expected ConflictException, got success")
     except ClientError as exc:
@@ -172,12 +235,16 @@ def scenario_5_stale_lock(client: Any, opp_id: str, stale_lmd: str) -> None:
             raise RuntimeError(f"expected ConflictException, got {code}") from exc
         _ok("conflict on stale lock", "ConflictException as expected")
     # Recovery: refetch and retry succeeds.
-    fresh = client.get_opportunity(Catalog=CATALOG, Identifier=opp_id)
+    fresh = _get_with_retry(client, opp_id)
+    payload = _scrub_for_update(fresh)
+    project = dict(payload.get("Project") or {})
+    project["Title"] = "Sandbox smoke: recovered after stale lock"
+    payload["Project"] = project
     client.update_opportunity(
         Catalog=CATALOG,
         Identifier=opp_id,
         LastModifiedDate=fresh["LastModifiedDate"],
-        Project={"Title": "Sandbox smoke: recovered after stale lock"},
+        **payload,
     )
     _ok("recovered", "refetch + retry succeeded")
 
@@ -211,16 +278,18 @@ def cleanup(client: Any, opp_id: str) -> None:
     """
     print(f"Cleanup: marking {opp_id} as Closed Lost")
     try:
-        current = client.get_opportunity(Catalog=CATALOG, Identifier=opp_id)
+        current = _get_with_retry(client, opp_id, attempts=3)
+        payload = _scrub_for_update(current)
         # "Closed Lost" is a Stage enum value, not a ReviewStatus value.
+        lc = dict(payload.get("LifeCycle") or {})
+        lc["Stage"] = "Closed Lost"
+        lc["ClosedLostReason"] = "Delay / Cancellation of Project"
+        payload["LifeCycle"] = lc
         client.update_opportunity(
             Catalog=CATALOG,
             Identifier=opp_id,
             LastModifiedDate=current["LastModifiedDate"],
-            LifeCycle={
-                "Stage": "Closed Lost",
-                "ClosedLostReason": "Delay / Cancellation of Project",
-            },
+            **payload,
         )
         _ok("marked closed lost", opp_id)
     except ClientError as exc:
@@ -240,41 +309,64 @@ def main() -> int:
         default=os.environ.get("HUBSPOT_WEBHOOK_TARGET_URL", ""),
         help="HubSpot webhook receiver URL (for scenario 10)",
     )
+    parser.add_argument(
+        "--skip-associate",
+        action="store_true",
+        help=(
+            "Skip scenarios 2 and 3 (AssociateOpportunity + StartEngagement). "
+            "Useful when the Sandbox catalog has no Approved solution registered yet "
+            "and you want to validate the rest of the flow."
+        ),
+    )
     args = parser.parse_args()
 
-    if not args.solution_id:
+    if not args.skip_associate and not args.solution_id:
         print("ERROR: --solution-id or ACE_DEFAULT_SOLUTION_ID is required")
         return 1
 
     client = _client()
     print(f"Running sandbox smoke matrix against catalog={CATALOG} region={REGION}")
+    if args.skip_associate:
+        print("(skipping scenarios 2-3: associate + engagement)")
     print()
 
     opp_id = ""
+    update_opp_id = ""
     try:
         create_response = scenario_1_create(client)
         opp_id = create_response["Id"]
-        scenario_2_associate(client, opp_id, args.solution_id)
-        scenario_3_start_engagement(client, opp_id)
-        # After StartEngagement, the opportunity is locked from edits, so
-        # scenarios 4 and 5 use a fresh opportunity.
-        update_create = scenario_1_create(client)
-        update_opp_id = update_create["Id"]
+        if not args.skip_associate:
+            scenario_2_associate(client, opp_id, args.solution_id)
+            scenario_3_start_engagement(client, opp_id)
+            # After StartEngagement, the opportunity is locked from edits, so
+            # scenarios 4 and 5 use a fresh opportunity. When skipping
+            # associate the original opportunity remains editable, so the
+            # update scenarios reuse it.
+            update_create = scenario_1_create(client)
+            update_opp_id = update_create["Id"]
+            update_lmd = str(update_create["LastModifiedDate"])
+        else:
+            update_opp_id = opp_id
+            update_lmd = str(create_response["LastModifiedDate"])
         scenario_4_update_with_optimistic_lock(client, update_opp_id)
-        # scenario 5 uses the original LMD (now stale) to force a conflict.
-        scenario_5_stale_lock(client, update_opp_id, str(update_create["LastModifiedDate"]))
+        # scenario 5 uses the original (now stale) LMD to force a conflict.
+        scenario_5_stale_lock(client, update_opp_id, update_lmd)
         scenario_10_forged_signature(args.api_url)
         if not args.keep:
             cleanup(client, opp_id)
-            cleanup(client, update_opp_id)
+            if update_opp_id and update_opp_id != opp_id:
+                cleanup(client, update_opp_id)
         print()
-        print("ALL AUTOMATED SCENARIOS PASSED")
+        print("ALL RUN SCENARIOS PASSED")
         return 0
     except Exception as exc:  # noqa: BLE001 -- top-level reporting
         print()
         print(f"FAIL: {type(exc).__name__}: {exc}")
-        if opp_id and not args.keep:
-            cleanup(client, opp_id)
+        if not args.keep:
+            if opp_id:
+                cleanup(client, opp_id)
+            if update_opp_id and update_opp_id != opp_id:
+                cleanup(client, update_opp_id)
         return 1
 
 

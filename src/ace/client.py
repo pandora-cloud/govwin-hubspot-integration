@@ -286,6 +286,28 @@ class ACEClient:
         return str(uuid.uuid4())
 
     @staticmethod
+    def scrub_for_update(current: dict[str, Any]) -> dict[str, Any]:
+        """Reduce a GetOpportunity response to fields UpdateOpportunity accepts.
+
+        UpdateOpportunity has PUT semantics: omitted fields are treated as
+        being cleared. The valid Update params per the boto3 service model
+        are narrower than what GetOpportunity returns, so we whitelist.
+        Catalog, Identifier, and LastModifiedDate are passed by the caller
+        and are not part of the body fields we scrub.
+        """
+        allowed = {
+            "PrimaryNeedsFromAws",
+            "NationalSecurity",
+            "Customer",
+            "Project",
+            "OpportunityType",
+            "Marketing",
+            "SoftwareRevenue",
+            "LifeCycle",
+        }
+        return {k: v for k, v in current.items() if k in allowed}
+
+    @staticmethod
     def _raise_api_error(op: str, exc: ClientError) -> NoReturn:
         code = exc.response.get("Error", {}).get("Code", "")
         message = exc.response.get("Error", {}).get("Message", str(exc))
