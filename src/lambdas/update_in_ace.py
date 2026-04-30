@@ -38,40 +38,53 @@ _PERMANENT_ERROR_CODES: set[str] = {
 }
 
 
-def _build_update(prop: str, value: Any) -> dict[str, Any] | None:
-    """Translate a single HubSpot property change into ACE update kwargs."""
+def _apply_delta(payload: dict[str, Any], prop: str, value: Any) -> bool:
+    """Mutate ``payload`` (an UpdateOpportunity body) for one property change.
+
+    AWS UpdateOpportunity has PUT semantics; the caller has already fetched
+    and scrubbed the current opportunity into ``payload``. This function
+    only edits the field that changed. Returns True if the delta was
+    applied; False to skip (irrelevant property or empty value).
+    """
     if value is None or value == "":
-        return None
+        return False
+    project = dict(payload.get("Project") or {})
+    life_cycle = dict(payload.get("LifeCycle") or {})
+
     if prop == "amount":
         try:
             spend = float(value)
         except (TypeError, ValueError):
-            return None
-        return {
-            "Project": {
-                "ExpectedCustomerSpend": [
-                    {
-                        "Amount": f"{spend:.2f}",
-                        "CurrencyCode": "USD",
-                        "Frequency": "Monthly",
-                        "TargetCompany": "Pandora Cloud LLC",
-                    }
-                ]
+            return False
+        project["ExpectedCustomerSpend"] = [
+            {
+                "Amount": f"{spend:.2f}",
+                "CurrencyCode": "USD",
+                "Frequency": "Monthly",
+                "TargetCompany": "Pandora Cloud LLC",
             }
-        }
+        ]
+        payload["Project"] = project
+        return True
     if prop == "closedate":
-        return {"LifeCycle": {"TargetCloseDate": str(value)[:10]}}
+        life_cycle["TargetCloseDate"] = str(value)[:10]
+        payload["LifeCycle"] = life_cycle
+        return True
     if prop == "dealname":
-        return {"Project": {"Title": str(value)[:255]}}
+        project["Title"] = str(value)[:255]
+        payload["Project"] = project
+        return True
     if prop == "description":
         # CustomerBusinessProblem is free text; CustomerUseCase is an
         # AWS-published enum, so we never write the description into it.
-        # CustomerUseCase changes flow through the dedicated
-        # govwin_ace_use_case property handler below.
-        return {"Project": {"CustomerBusinessProblem": str(value)[:1500]}}
+        project["CustomerBusinessProblem"] = str(value)[:1500]
+        payload["Project"] = project
+        return True
     if prop == "govwin_ace_use_case":
-        return {"Project": {"CustomerUseCase": str(value)}}
-    return None
+        project["CustomerUseCase"] = str(value)
+        payload["Project"] = project
+        return True
+    return False
 
 
 def _resolve_govwin_id(
@@ -104,9 +117,8 @@ def _process_event(
     deal_id = raw_deal_id
 
     prop = hs_event.get("propertyName")
-    update = _build_update(str(prop or ""), hs_event.get("propertyValue"))
-    if not update:
-        return {"status": "skipped", "reason": f"no relevant field for {prop}"}
+    if not prop:
+        return {"status": "skipped", "reason": "no propertyName"}
 
     govwin_id = _resolve_govwin_id(state, hubspot, deal_id)
     if not govwin_id:
@@ -117,11 +129,19 @@ def _process_event(
     if not ace_id:
         return {"status": "skipped", "reason": "no ace mapping yet"}
 
-    last_modified = mapping.get("last_modified_date")
+    # AWS UpdateOpportunity has PUT semantics: any field omitted from the
+    # request is treated as being cleared. Fetch the current opportunity,
+    # whitelist to the subset of fields UpdateOpportunity accepts, and
+    # apply only the property-change delta on top.
+    current = ace.get_opportunity(str(ace_id))
+    payload = ACEClient.scrub_for_update(current)
+    if not _apply_delta(payload, str(prop), hs_event.get("propertyValue")):
+        return {"status": "skipped", "reason": f"no relevant field for {prop}"}
+
     response = ace.update_with_retry(
         identifier=str(ace_id),
-        updates=update,
-        known_last_modified_date=last_modified,
+        updates=payload,
+        known_last_modified_date=current.get("LastModifiedDate"),
     )
     state.update_ace_mapping(
         govwin_id=govwin_id,

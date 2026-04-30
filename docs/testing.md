@@ -191,3 +191,35 @@ Run before flipping `ace_catalog` from `Sandbox` to `AWS`. Each test is scriptab
 | 11 | End-to-end: GovWin marked -> HubSpot synced -> BD edits -> stage transition -> ACE submission | Full pipeline against the Sandbox catalog; verify the AWS Partner Central UI shows the opportunity with correct fields |
 
 For automation scaffolding, see `scripts/find_test_candidates.py` and `scripts/check_marked_and_hubspot.py` for the v1 pattern.
+
+### Sandbox status (2026-04-29)
+
+Five of the eleven scenarios run end-to-end against the AWS Sandbox catalog with `scripts/sandbox_smoke.py --skip-associate`:
+
+| # | Scenario | Status |
+|---|---|---|
+| 1 | CreateOpportunity in Sandbox | PASS |
+| 2 | AssociateOpportunity | blocked: requires an Approved Solution registered specifically in the Sandbox catalog |
+| 3 | StartEngagementFromOpportunityTask | blocked: depends on scenario 2 |
+| 4 | UpdateOpportunity (positive, optimistic locking) | PASS |
+| 5 | UpdateOpportunity (stale lock, ConflictException + recovery) | PASS |
+| 6 | EventBridge `Opportunity Updated` | pending: realistic test requires an engaged opp from scenario 3 |
+| 7 | Engagement Invitation Accepted | pending: depends on scenario 3 |
+| 8 | Engagement Invitation Rejected | pending: depends on scenario 3 |
+| 9 | HubSpot webhook signature validation (positive, real delivery) | pending: requires HubSpot subscriptions activated |
+| 10 | HubSpot webhook signature validation (negative, forged) | PASS |
+| 11 | End-to-end | pending: depends on scenarios 2-3 |
+
+**To unblock scenarios 2-3-6-7-8-11:** register an Approved Solution in the Sandbox catalog of AWS Partner Central (separate registration from the production catalog). AWS approval typically takes 24-72 hours. Once approved, run `scripts/sandbox_smoke.py` without `--skip-associate`.
+
+**Findings from this round of smoke testing**, all already fixed in code:
+
+- `Customer.Account.CountryCode` is nested under `Address`, not flat on `Account`.
+- `Customer.Account.WebsiteUrl`, `Address.PostalCode`, and `Address.StateOrRegion` are required by Sandbox business validation.
+- `StateOrRegion` uses an enum of full state names ("Dist. of Columbia"), not 2-letter abbreviations. The mapper now normalizes via a `_STATE_ABBR_TO_FULL` lookup.
+- `Project.CustomerUseCase` is an AWS-published enum (38 service categories), not a free-text field. The mapper enforces a published default and a HubSpot override property `govwin_ace_use_case`.
+- `Project.CustomerBusinessProblem` requires 20-2000 characters; deals with very short descriptions get padded with the title.
+- `Origin = "AWS Referral"` puts opportunities in the incoming-referral inbox (not visible to GetOpportunity until accepted). Always use `"Partner Referral"` when we are originating.
+- `LifeCycle.Stage = "Closed Lost"` cannot be set while `LifeCycle.ReviewStatus = "Pending Submission"`. Cleanup is best-effort; sandbox state is auto-purged.
+- AWS `UpdateOpportunity` is **PUT, not PATCH**. Omitted fields are treated as cleared. Production `update_in_ace.py` and the smoke script both fetch the current opportunity, whitelist to the Update input schema (`PrimaryNeedsFromAws`, `NationalSecurity`, `Customer`, `Project`, `OpportunityType`, `Marketing`, `SoftwareRevenue`, `LifeCycle`), apply the delta, and send the full payload. `ACEClient.scrub_for_update` is the helper.
+- AWS Partner Central is eventually consistent: GetOpportunity right after CreateOpportunity can return ResourceNotFoundException for several seconds. The script retries with backoff (5s, 10s, 15s, 20s, 25s, 30s).
