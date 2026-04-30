@@ -74,6 +74,30 @@ class TestMapHubSpotDealToACECreatePayload:
         )
         assert payload["Project"]["CustomerUseCase"] == "Security & Compliance"
 
+    def test_hubspot_short_partner_need_translates_to_aws_long(
+        self, deal: dict[str, object], app_config: AppConfig
+    ) -> None:
+        """HubSpot stores short labels; AWS expects the Co-Sell-prefixed form."""
+        deal["properties"]["govwin_ace_partner_need"] = "Technical Consultation"  # type: ignore[index]
+        payload = map_hubspot_deal_to_ace_create_payload(
+            deal, app_config, client_token="tok"
+        )
+        assert payload["PrimaryNeedsFromAws"] == ["Co-Sell - Technical Consultation"]
+
+    def test_other_solution_description_emitted_when_set(
+        self, deal: dict[str, object], app_config: AppConfig
+    ) -> None:
+        deal["properties"]["govwin_ace_other_solution_description"] = (  # type: ignore[index]
+            "Pandora federal cloud services"
+        )
+        payload = map_hubspot_deal_to_ace_create_payload(
+            deal, app_config, client_token="tok"
+        )
+        assert (
+            payload["Project"]["OtherSolutionDescription"]
+            == "Pandora federal cloud services"
+        )
+
     def test_missing_partner_need_raises(
         self, deal: dict[str, object], app_config: AppConfig
     ) -> None:
@@ -145,10 +169,19 @@ class TestResolveSolutionId:
         deal["properties"]["govwin_ace_solution_id"] = "S-0050888"  # type: ignore[index]
         assert resolve_solution_id(deal, app_config) == "S-0050888"
 
-    def test_no_default_raises(
+    def test_no_default_returns_empty(
         self, deal: dict[str, object], app_config: AppConfig
     ) -> None:
+        """When neither override nor default is set, returns "" (caller falls
+        back to OtherSolutionDescription)."""
         from dataclasses import replace
         cfg = replace(app_config, ace=replace(app_config.ace, default_solution_id=""))
-        with pytest.raises(ACEMappingError, match="No Solution ID"):
-            resolve_solution_id(deal, cfg)
+        assert resolve_solution_id(deal, cfg) == ""
+
+    def test_legacy_solution_field_accepted(
+        self, deal: dict[str, object], app_config: AppConfig
+    ) -> None:
+        """govwin_ace_solution (legacy property name) is also honored."""
+        deal["properties"]["govwin_ace_solution"] = "S-9999999"  # type: ignore[index]
+        deal["properties"].pop("govwin_ace_solution_id", None)  # type: ignore[union-attr]
+        assert resolve_solution_id(deal, app_config) == "S-9999999"

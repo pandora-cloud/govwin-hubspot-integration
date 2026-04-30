@@ -35,6 +35,28 @@ ALLOWED_PRIMARY_NEEDS: set[str] = {
     "Co-Sell - Support for Public Tender / RFx",
 }
 
+# HubSpot's govwin_ace_partner_need property uses short labels (e.g.
+# "Technical Consultation") but AWS PrimaryNeedsFromAws expects the
+# Co-Sell-prefixed long form. This map normalizes; values already in the
+# AWS-long form pass through unchanged.
+_HUBSPOT_PARTNER_NEED_TO_AWS: dict[str, str] = {
+    "Architectural Validation": "Co-Sell - Architectural Validation",
+    "Business Presentation": "Co-Sell - Business Presentation",
+    "Competitive Intelligence": "Co-Sell - Competitive Information",
+    "Competitive Information": "Co-Sell - Competitive Information",
+    "Pricing Assistance": "Co-Sell - Pricing Assistance",
+    "Technical Consultation": "Co-Sell - Technical Consultation",
+    "Total Cost of Ownership Evaluation": "Co-Sell - Total Cost of Ownership Evaluation",
+    "Deal Support": "Co-Sell - Deal Support",
+    "Support for Public Tender": "Co-Sell - Support for Public Tender / RFx",
+    "Support for Public Tender / RFx": "Co-Sell - Support for Public Tender / RFx",
+}
+
+
+def _normalize_partner_need(value: str) -> str:
+    """Translate HubSpot short labels to AWS-long PrimaryNeedsFromAws values."""
+    return _HUBSPOT_PARTNER_NEED_TO_AWS.get(value, value)
+
 # Allowed values for ``Project.DeliveryModels``.
 ALLOWED_DELIVERY_MODELS: set[str] = {
     "SaaS or PaaS",
@@ -228,6 +250,14 @@ def _project_block(deal: dict[str, Any]) -> dict[str, Any]:
         )
     project["CustomerUseCase"] = use_case
 
+    # When no associable Solution ID is configured (the Sandbox catalog has
+    # no Approved solutions in many test setups), AWS expects
+    # OtherSolutionDescription in the create payload. Production deployments
+    # with a registered Solution call AssociateOpportunity afterwards instead.
+    other_solution = _get(deal, "govwin_ace_other_solution_description")
+    if other_solution:
+        project["OtherSolutionDescription"] = str(other_solution)[:255]
+
     amount = _get(deal, "amount")
     if amount:
         try:
@@ -271,12 +301,13 @@ def map_hubspot_deal_to_ace_create_payload(
     :param client_token: caller-supplied UUID; persist before calling ``CreateOpportunity``.
     :raises ACEMappingError: when required manual fields are missing or invalid.
     """
-    primary_needs = _split_csv(_get(deal, "govwin_ace_partner_need"))
-    if not primary_needs:
+    primary_needs_raw = _split_csv(_get(deal, "govwin_ace_partner_need"))
+    if not primary_needs_raw:
         raise ACEMappingError(
             "govwin_ace_partner_need is required (one or more of: "
             f"{sorted(ALLOWED_PRIMARY_NEEDS)})"
         )
+    primary_needs = [_normalize_partner_need(n) for n in primary_needs_raw]
     invalid_needs = [n for n in primary_needs if n not in ALLOWED_PRIMARY_NEEDS]
     if invalid_needs:
         # Redact full values; report only count to keep deal text out of logs/DLQ.
@@ -303,18 +334,18 @@ def map_hubspot_deal_to_ace_create_payload(
 
 
 def resolve_solution_id(deal: dict[str, Any], config: AppConfig) -> str:
-    """Return the Solution ID to associate with this opportunity.
+    """Return the AWS Solution ID to associate, or "" if none is configured.
 
-    Honors a per-deal override via ``govwin_ace_solution_id``; otherwise uses
-    the configured default. Raises if neither is set so we never associate
-    the wrong solution silently.
+    Lookup order:
+      1. ``govwin_ace_solution_id`` per-deal override (preferred name)
+      2. ``govwin_ace_solution`` per-deal legacy field name
+      3. configured ``ace_default_solution_id``
+
+    Returns "" when nothing is set, so the caller can fall back to the
+    OtherSolutionDescription path (used in Sandbox where no Approved
+    solution is registered) instead of failing the submission.
     """
-    override = _get(deal, "govwin_ace_solution_id")
+    override = _get(deal, "govwin_ace_solution_id") or _get(deal, "govwin_ace_solution")
     if override:
         return str(override)
-    if config.ace.default_solution_id:
-        return config.ace.default_solution_id
-    raise ACEMappingError(
-        "No Solution ID available: set govwin_ace_solution_id on the deal "
-        "or ACE_DEFAULT_SOLUTION_ID in config"
-    )
+    return config.ace.default_solution_id or ""

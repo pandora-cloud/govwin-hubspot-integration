@@ -132,12 +132,13 @@ def _process_event(
         logger.info("ace.created opportunity_id=%s govwin_id=%s", ace_opportunity_id, govwin_id)
         mapping = state.get_ace_mapping(govwin_id) or mapping
 
-    # Step 3: AssociateOpportunity. Always called: a duplicate yields
-    # ConflictException which we treat as success, so the API itself is the
-    # authoritative dedup boundary.
-    if not mapping.get("ace_task_id"):
+    # Step 3: AssociateOpportunity. Skipped when no Solution ID is configured
+    # (e.g. Sandbox where no Approved solution is registered); in that case
+    # the create-opportunity payload included OtherSolutionDescription, which
+    # AWS accepts as the alternative.
+    solution_id = resolve_solution_id(deal, config)
+    if solution_id and not mapping.get("ace_task_id"):
         try:
-            solution_id = resolve_solution_id(deal, config)
             ace.associate_opportunity(
                 opportunity_identifier=str(ace_opportunity_id),
                 related_entity_identifier=solution_id,
@@ -157,6 +158,12 @@ def _process_event(
                 ace_opportunity_id,
                 solution_id,
             )
+    elif not solution_id:
+        logger.info(
+            "ace.associate skipped: no Solution ID configured; relying on "
+            "OtherSolutionDescription on opp=%s",
+            ace_opportunity_id,
+        )
 
     # Step 4: StartEngagementFromOpportunityTask. Reuse a persisted task token
     # so that an SQS retry hits the same idempotency key on the AWS side.
