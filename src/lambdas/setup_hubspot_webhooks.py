@@ -19,28 +19,21 @@ from botocore.exceptions import ClientError
 
 from src.config import load_config
 from src.hubspot.client import HubSpotAPIError, HubSpotClient
+from src.lambdas._webhook_routing import ALL_SUBSCRIBED_PROPERTIES
 
 logger = logging.getLogger(__name__)
 logger.setLevel(os.environ.get("LOG_LEVEL", "INFO"))
 
 
-# Webhook subscriptions split by purpose:
-#   * dealstage triggers initial submission (Submit to AWS stage transition).
-#   * amount, closedate, dealname, description trigger UpdateOpportunity
-#     for content edits while the opp is still editable.
-#   * govwin_ace_use_case triggers UpdateOpportunity for the ACE-only
-#     CustomerUseCase override.
-#
-# We deliberately do NOT subscribe to govwin_ace_partner_need or
-# govwin_ace_delivery_model: those are CreateOpportunity-time inputs and
-# AWS rejects updates to them after StartEngagementFromOpportunityTask.
+# Webhook subscriptions are derived from the shared routing module so the
+# receiver and the registrar can never drift. dealstage triggers initial
+# submission; the rest trigger UpdateOpportunity for content edits.
+# govwin_ace_partner_need and govwin_ace_delivery_model are deliberately
+# excluded: they're CreateOpportunity-time inputs that AWS rejects on
+# update after StartEngagementFromOpportunityTask.
 _SUBSCRIPTIONS: list[dict[str, Any]] = [
-    {"subscriptionType": "deal.propertyChange", "propertyName": "dealstage"},
-    {"subscriptionType": "deal.propertyChange", "propertyName": "amount"},
-    {"subscriptionType": "deal.propertyChange", "propertyName": "closedate"},
-    {"subscriptionType": "deal.propertyChange", "propertyName": "dealname"},
-    {"subscriptionType": "deal.propertyChange", "propertyName": "description"},
-    {"subscriptionType": "deal.propertyChange", "propertyName": "govwin_ace_use_case"},
+    {"subscriptionType": "deal.propertyChange", "propertyName": prop}
+    for prop in ALL_SUBSCRIBED_PROPERTIES
 ]
 
 

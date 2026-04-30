@@ -66,9 +66,9 @@ variable "project_name" {
 }
 
 variable "sync_schedule" {
-  description = "EventBridge schedule expression for sync frequency"
+  description = "EventBridge schedule expression for the GovWin -> HubSpot sync frequency. Defaults to hourly."
   type        = string
-  default     = "rate(4 hours)"
+  default     = "rate(1 hour)"
 }
 
 variable "govwin_opp_types" {
