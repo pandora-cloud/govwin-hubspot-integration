@@ -21,6 +21,10 @@ resource "aws_lambda_function" "orchestrator" {
   source_code_hash               = var.lambda_source_hash
   layers                         = [var.lambda_layer_arn]
 
+  tracing_config {
+    mode = "Active"
+  }
+
   environment {
     variables = local.sync_env
   }
@@ -38,6 +42,10 @@ resource "aws_lambda_function" "worker" {
   filename                       = var.lambda_source_zip
   source_code_hash               = var.lambda_source_hash
   layers                         = [var.lambda_layer_arn]
+
+  tracing_config {
+    mode = "Active"
+  }
 
   environment {
     variables = local.sync_env
