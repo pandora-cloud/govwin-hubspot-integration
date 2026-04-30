@@ -95,10 +95,23 @@ def _handle_opportunity_event(
     if not deal_id:
         return {"status": "skipped", "reason": "no hubspot deal mapping"}
 
-    review_status = (full.get("LifeCycle") or {}).get("ReviewStatus")
-    target_stage = _DEALSTAGE_BY_AWS_REVIEW.get(str(review_status or ""))
+    review_status = str((full.get("LifeCycle") or {}).get("ReviewStatus") or "")
+    target_stage = _DEALSTAGE_BY_AWS_REVIEW.get(review_status)
     if not target_stage:
-        return {"status": "skipped", "reason": f"no mapping for {review_status}"}
+        # "Pending Submission" fires on every CreateOpportunity (and on the
+        # implicit Opportunity Created event AWS emits). It is intentionally
+        # not mapped because we don't want every create to thrash the
+        # HubSpot dealstage. Distinguish that expected case in the log so
+        # an operator scanning CloudWatch doesn't read it as a failure.
+        if review_status == "Pending Submission":
+            return {
+                "status": "no-op",
+                "reason": "Pending Submission is informational; no HubSpot stage change",
+            }
+        return {
+            "status": "skipped",
+            "reason": f"no HubSpot stage label maps to ReviewStatus={review_status!r}",
+        }
     if not _update_hubspot_stage(hubspot, str(deal_id), target_stage):
         return {"status": "skipped", "reason": "stage missing in pipeline"}
 

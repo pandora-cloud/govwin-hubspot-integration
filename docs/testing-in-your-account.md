@@ -165,6 +165,17 @@ ALL RUN SCENARIOS PASSED
 
 Each scenario is independently runnable; rerun is idempotent.
 
+### Sandbox state-machine constraints (read before running scenario 11)
+
+AWS Sandbox enforces a few non-obvious rules that scripted state walks will hit:
+
+- **`ReviewStatus` is partially server-managed.** Partners can `UpdateOpportunity` to set `Approved`, `Rejected`, or `Action Required`. They **cannot** set `In review` (server-only) or `Submitted` (AWS auto-applies after `StartEngagementFromOpportunityTask` validates and requires `Project.SalesActivities` to be populated; the mapper seeds a default).
+- **`Approved` is terminal.** Once an opportunity reaches `ReviewStatus=Approved`, AWS Sandbox refuses any further `ReviewStatus` change with `reviewStatus is not editable if status is Approved`. To exercise the rejection path, use a fresh opportunity.
+- **`Stage` cannot move while `ReviewStatus=Pending Submission`.** This blocks "mark this opp Closed Lost as cleanup" until you've at least called `StartEngagementFromOpportunityTask`.
+- **No `DeleteOpportunity` API.** Cleanup is best-effort: move the opp to `Stage=Closed Lost` (after advancing past `Pending Submission`). AWS Sandbox auto-wipes annually.
+
+Practical implication for scenario 11: drive the opp `Pending Submission → Approved` directly to confirm the EventBridge → handle_ace_event → HubSpot stage path. The `Submitted` and `In review` intermediate states are observable only through the AWS reviewer's actual workflow in production catalog.
+
 ### 6. Run scenario 11 manually (the one the script can't automate)
 
 Scenario 11 is the full pipeline path: GovWin marked -> HubSpot synced -> BD edits -> dealstage transition -> ACE submission. The script can't automate it because it requires an interactive HubSpot stage transition.

@@ -117,6 +117,25 @@ ALLOWED_CUSTOMER_USE_CASES: set[str] = {
 DEFAULT_CUSTOMER_USE_CASE = "Migration / Database Migration"
 
 
+# AWS Project.SalesActivities enum (partnercentral-selling 2022-07-26).
+# AWS now requires a non-empty SalesActivities array before allowing the
+# opportunity to advance to ReviewStatus=Submitted (server-side validation).
+# We seed a sensible BD-default at CreateOpportunity time so the partner
+# review path is not blocked on it; BD can refine via UpdateOpportunity.
+ALLOWED_SALES_ACTIVITIES: set[str] = {
+    "Initialized discussions with customer",
+    "Customer has shown interest in solution",
+    "Conducted POC / Demo",
+    "In evaluation / planning stage",
+    "Agreed on solution to Business Problem",
+    "Completed Action Plan",
+    "Finalized Deployment Need",
+    "SOW Signed",
+}
+
+DEFAULT_SALES_ACTIVITIES = ["Initialized discussions with customer"]
+
+
 # AWS Customer.Account.Industry enum. Sourced from the boto3 service model
 # (partnercentral-selling 2022-07-26).
 ALLOWED_INDUSTRIES: frozenset[str] = frozenset({
@@ -330,6 +349,11 @@ def _project_block(deal: dict[str, Any]) -> dict[str, Any]:
         use_case = use_case_raw
     project["CustomerUseCase"] = use_case
 
+    # Seed SalesActivities so the AWS-side review flow can advance to
+    # ReviewStatus=Submitted. AWS rejects the transition with
+    # "project.salesActivities is required" when this is missing.
+    project["SalesActivities"] = list(DEFAULT_SALES_ACTIVITIES)
+
     # AWS rejects the opportunity if neither a Solution association nor
     # OtherSolutionDescription is provided. Since AssociateOpportunity is
     # a separate post-create step (and may be skipped, e.g. in Sandbox),
@@ -362,6 +386,16 @@ def _project_block(deal: dict[str, Any]) -> dict[str, Any]:
 
 
 def _life_cycle_block(deal: dict[str, Any]) -> dict[str, Any]:
+    """Build the LifeCycle block.
+
+    AWS requires LifeCycle.TargetCloseDate at CreateOpportunity time. GovWin
+    opportunities at the RFI / pre-RFP stage sometimes have no known close
+    date and the HubSpot deal carries closedate=null. Default to ~6 months
+    from now in that case so AWS does not reject submission; BD can refine
+    the date via UpdateOpportunity later.
+    """
+    from datetime import UTC, datetime, timedelta
+
     closedate = _get(deal, "closedate")
     block: dict[str, Any] = {"ReviewStatus": "Pending Submission"}
     if closedate:
@@ -370,6 +404,10 @@ def _life_cycle_block(deal: dict[str, Any]) -> dict[str, Any]:
             block["TargetCloseDate"] = str(closedate)[:10]
         except (TypeError, AttributeError):
             pass
+    if "TargetCloseDate" not in block:
+        block["TargetCloseDate"] = (
+            datetime.now(UTC) + timedelta(days=180)
+        ).strftime("%Y-%m-%d")
     return block
 
 

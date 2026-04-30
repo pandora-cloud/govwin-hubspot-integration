@@ -274,6 +274,24 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
                         message_id,
                         str(exc),
                     )
+                    # Permanent errors silently delete the SQS message
+                    # (SQS sees a clean return). Without an SNS alert, the
+                    # only visibility is a single CloudWatch warning -- a
+                    # stuck deal is invisible to BD. Publish to SNS so
+                    # the on-call sees the rejection. Best-effort: a
+                    # publish failure does not propagate.
+                    try:
+                        deal_id = str((hs_event or {}).get("objectId") or "?")
+                        _publish_mapping_error_alert(
+                            config=config,
+                            deal_id=deal_id,
+                            govwin_id="(unknown - AWS rejected before lookup)",
+                            error=f"AWS {exc.code}: {exc}",
+                        )
+                    except Exception:  # noqa: BLE001 -- alert is best-effort
+                        logger.exception(
+                            "submit_to_ace: SNS publish for permanent error failed"
+                        )
                     continue
                 logger.warning(
                     "submit_to_ace: transient %s for message %s; retrying via SQS",
