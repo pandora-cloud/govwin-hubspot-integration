@@ -160,8 +160,19 @@ class TestMapHubSpotDealToACECreatePayload:
 
 
 class TestResolveSolutionId:
-    def test_uses_default(self, deal: dict[str, object], app_config: AppConfig) -> None:
-        assert resolve_solution_id(deal, app_config) == "S-0051246"
+    def test_uses_default_in_aws_catalog(
+        self, deal: dict[str, object], app_config: AppConfig
+    ) -> None:
+        from dataclasses import replace
+        cfg = replace(app_config, ace=replace(app_config.ace, catalog="AWS"))
+        assert resolve_solution_id(deal, cfg) == "S-0051246"
+
+    def test_default_ignored_in_sandbox_catalog(
+        self, deal: dict[str, object], app_config: AppConfig
+    ) -> None:
+        """Sandbox does not have production solutions; default is ignored."""
+        # app_config fixture uses Sandbox catalog by default.
+        assert resolve_solution_id(deal, app_config) == ""
 
     def test_per_deal_override_wins(
         self, deal: dict[str, object], app_config: AppConfig

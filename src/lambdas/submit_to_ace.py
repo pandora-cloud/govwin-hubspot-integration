@@ -223,9 +223,10 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
             except ACEAPIError as exc:
                 if exc.code in _PERMANENT_ERROR_CODES:
                     logger.warning(
-                        "submit_to_ace: permanent error %s for message %s; dropping",
+                        "submit_to_ace: permanent error %s for message %s; dropping. detail=%s",
                         exc.code,
                         message_id,
+                        str(exc),
                     )
                     continue
                 logger.warning(

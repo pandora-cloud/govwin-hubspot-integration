@@ -250,13 +250,18 @@ def _project_block(deal: dict[str, Any]) -> dict[str, Any]:
         )
     project["CustomerUseCase"] = use_case
 
-    # When no associable Solution ID is configured (the Sandbox catalog has
-    # no Approved solutions in many test setups), AWS expects
-    # OtherSolutionDescription in the create payload. Production deployments
-    # with a registered Solution call AssociateOpportunity afterwards instead.
-    other_solution = _get(deal, "govwin_ace_other_solution_description")
-    if other_solution:
-        project["OtherSolutionDescription"] = str(other_solution)[:255]
+    # AWS rejects the opportunity if neither a Solution association nor
+    # OtherSolutionDescription is provided. Since AssociateOpportunity is
+    # a separate post-create step (and may be skipped, e.g. in Sandbox),
+    # we always populate OtherSolutionDescription here as a fallback.
+    # Per-deal override via govwin_ace_other_solution_description wins;
+    # otherwise we fall back to the deal title.
+    other_solution = (
+        _get(deal, "govwin_ace_other_solution_description")
+        or title
+        or "Partner solution"
+    )
+    project["OtherSolutionDescription"] = str(other_solution)[:255]
 
     amount = _get(deal, "amount")
     if amount:
@@ -339,13 +344,19 @@ def resolve_solution_id(deal: dict[str, Any], config: AppConfig) -> str:
     Lookup order:
       1. ``govwin_ace_solution_id`` per-deal override (preferred name)
       2. ``govwin_ace_solution`` per-deal legacy field name
-      3. configured ``ace_default_solution_id``
+      3. configured ``ace_default_solution_id`` (production catalog only)
+
+    The configured default is intentionally ignored in the Sandbox catalog
+    because production-catalog solutions do not exist in the Sandbox
+    catalog. In Sandbox, callers fall back to OtherSolutionDescription on
+    the create payload.
 
     Returns "" when nothing is set, so the caller can fall back to the
-    OtherSolutionDescription path (used in Sandbox where no Approved
-    solution is registered) instead of failing the submission.
+    OtherSolutionDescription path instead of failing the submission.
     """
     override = _get(deal, "govwin_ace_solution_id") or _get(deal, "govwin_ace_solution")
     if override:
         return str(override)
+    if config.ace.catalog == "Sandbox":
+        return ""
     return config.ace.default_solution_id or ""
