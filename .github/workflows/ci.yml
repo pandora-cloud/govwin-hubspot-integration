@@ -45,6 +45,27 @@ jobs:
         working-directory: terraform
         run: terraform validate
 
+  supply-chain:
+    name: Dependency audit (pip-audit)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install pip-audit and uv
+        run: pip install pip-audit uv
+      - name: Verify lockfile in sync with uv.lock
+        run: |
+          uv export --format=requirements-txt --no-dev --no-emit-project 2>/dev/null > /tmp/requirements.lock.expected
+          if ! diff -q requirements.lock /tmp/requirements.lock.expected; then
+            echo "::error::requirements.lock is out of sync with uv.lock. Run 'make lock' and commit."
+            diff requirements.lock /tmp/requirements.lock.expected | head -40
+            exit 1
+          fi
+      - name: Audit (pip-audit, fail on CVEs)
+        run: pip-audit -r requirements.lock --disable-pip
+
   secret-scan:
     name: Secret scan (gitleaks)
     runs-on: ubuntu-latest

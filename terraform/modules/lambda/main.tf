@@ -315,6 +315,10 @@ output "setup_hubspot_arn" {
   value = aws_lambda_function.setup_hubspot.arn
 }
 
+output "setup_hubspot_function_name" {
+  value = aws_lambda_function.setup_hubspot.function_name
+}
+
 # Exposed so the govwin_sync and ace modules can reuse the same role / layer / zip.
 
 output "lambda_role_arn" {

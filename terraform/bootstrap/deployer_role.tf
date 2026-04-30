@@ -508,6 +508,33 @@ resource "aws_iam_role_policy" "deployer_iam" {
 }
 
 # --------------------------------------------------------------------------
+# Policy 10b: CloudWatch metric alarms (monitoring module).
+# --------------------------------------------------------------------------
+
+resource "aws_iam_role_policy" "deployer_cloudwatch" {
+  name = "cloudwatch-alarms"
+  role = aws_iam_role.deployer.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "AlarmsManage"
+        Effect = "Allow"
+        Action = [
+          "cloudwatch:DescribeAlarms",
+          "cloudwatch:PutMetricAlarm",
+          "cloudwatch:DeleteAlarms",
+          "cloudwatch:TagResource",
+          "cloudwatch:UntagResource",
+          "cloudwatch:ListTagsForResource",
+        ]
+        Resource = "arn:aws:cloudwatch:${local.region}:${local.account_id}:alarm:${local.project_glob}"
+      },
+    ]
+  })
+}
+
+# --------------------------------------------------------------------------
 # Policy 11: Read-only data sources Terraform needs (account id, region, etc.)
 # --------------------------------------------------------------------------
 
