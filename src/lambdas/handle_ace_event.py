@@ -156,23 +156,32 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
     config = load_config()
     state = SyncStateManager(config)
     event_id = str(event.get("id") or "")
+    detail_type = str(event.get("detail-type") or "")
+    logger.info(
+        "handle_ace_event.received id=%s detail-type=%s source=%s",
+        event_id,
+        detail_type,
+        event.get("source"),
+    )
     if event_id and not state.mark_event_seen_atomic(
         event_id, ttl_seconds=config.ace.event_dedup_ttl_seconds
     ):
         logger.info("handle_ace_event: dedup hit for %s", event_id)
         return {"status": "duplicate", "event_id": event_id}
 
-    detail_type = str(event.get("detail-type") or "")
     detail = event.get("detail") or {}
     ace = ACEClient(config)
 
     with HubSpotClient(config) as hubspot:
         if detail_type in {"Opportunity Created", "Opportunity Updated"}:
-            return _handle_opportunity_event(
+            result = _handle_opportunity_event(
                 detail, state=state, ace=ace, hubspot=hubspot
             )
-        if detail_type.startswith("Engagement Invitation"):
-            return _handle_invitation_event(
+        elif detail_type.startswith("Engagement Invitation"):
+            result = _handle_invitation_event(
                 detail_type, detail, state=state, ace=ace, hubspot=hubspot
             )
-        return {"status": "skipped", "reason": f"unhandled detail-type {detail_type}"}
+        else:
+            result = {"status": "skipped", "reason": f"unhandled detail-type {detail_type}"}
+    logger.info("handle_ace_event.result %s", result)
+    return result
