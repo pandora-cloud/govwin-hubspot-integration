@@ -117,3 +117,8 @@ variable "hubspot_webhook_client_secret" {
   description = "HubSpot client secret used for X-HubSpot-Signature-v3 validation"
   sensitive   = true
 }
+
+variable "sns_topic_arn" {
+  description = "SNS topic ARN for mapping-error and terminal-failure alerts."
+  type        = string
+}

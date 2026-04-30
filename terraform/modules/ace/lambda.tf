@@ -16,6 +16,11 @@ locals {
     ACE_DEFAULT_VISIBILITY       = var.ace_default_visibility
     ACE_TRIGGER_STAGES           = var.ace_trigger_stages
     HUBSPOT_WEBHOOK_TARGET_URL   = "https://${aws_apigatewayv2_api.webhook.id}.execute-api.${var.aws_region}.amazonaws.com/hubspot"
+    # SNS topic for mapping-error and terminal-failure alerts. Without this
+    # the ACE Lambdas log "sns: no topic configured" and silently drop
+    # the alert -- a stuck deal becomes invisible to BD until someone
+    # tails CloudWatch.
+    SNS_TOPIC_ARN = var.sns_topic_arn
   }
 }
 

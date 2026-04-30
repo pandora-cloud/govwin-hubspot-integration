@@ -306,10 +306,12 @@ DEAL_PROPERTIES: list[HubSpotProperty] = [
                 "label": "Web development & DevOps",
                 "value": "Web development & DevOps",
             },
-            {
-                "label": "Other (see ALLOWED_CUSTOMER_USE_CASES)",
-                "value": "Other",
-            },
+            # Note: do NOT add an "Other" option. AWS treats CustomerUseCase
+            # as a closed enum (no companion OtherCustomerUseCase free-text
+            # field), so any value not listed in
+            # src/ace/mapper.py:ALLOWED_CUSTOMER_USE_CASES would be rejected
+            # at CreateOpportunity time. The mapper falls back to "Migration
+            # / Database Migration" silently if the property is left blank.
         ],
     ),
     HubSpotProperty(
