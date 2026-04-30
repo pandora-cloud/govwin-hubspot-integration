@@ -157,9 +157,9 @@ resource "aws_iam_role_policy" "deployer_lambda" {
         # action against arn:aws:logs:region:account:log-group::log-stream:
         # (the wildcard form). We allow it broadly but only in the project's
         # region; the deployer cannot describe log groups outside us-east-1.
-        Sid    = "LogsDescribeRegion"
-        Effect = "Allow"
-        Action = ["logs:DescribeLogGroups"]
+        Sid      = "LogsDescribeRegion"
+        Effect   = "Allow"
+        Action   = ["logs:DescribeLogGroups"]
         Resource = "*"
         Condition = {
           StringEquals = {
@@ -369,30 +369,30 @@ resource "aws_iam_role_policy" "deployer_events" {
 }
 
 # --------------------------------------------------------------------------
-# Policy 9: Step Functions (v1 sync state machine)
+# Policy 9: EventBridge Scheduler (v2.1 GovWin sync trigger). Replaces the
+# v2.0 Step Functions grant.
 # --------------------------------------------------------------------------
 
-resource "aws_iam_role_policy" "deployer_states" {
-  name = "states"
+resource "aws_iam_role_policy" "deployer_scheduler" {
+  name = "scheduler"
   role = aws_iam_role.deployer.id
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
       {
-        Sid    = "StatesManage"
+        Sid    = "SchedulerManage"
         Effect = "Allow"
         Action = [
-          "states:CreateStateMachine",
-          "states:DeleteStateMachine",
-          "states:DescribeStateMachine",
-          "states:UpdateStateMachine",
-          "states:ListStateMachineVersions",
-          "states:ListTagsForResource",
-          "states:TagResource",
-          "states:UntagResource",
-          "states:StartExecution",
+          "scheduler:CreateSchedule",
+          "scheduler:UpdateSchedule",
+          "scheduler:DeleteSchedule",
+          "scheduler:GetSchedule",
+          "scheduler:ListSchedules",
+          "scheduler:TagResource",
+          "scheduler:UntagResource",
+          "scheduler:ListTagsForResource",
         ]
-        Resource = "arn:aws:states:${local.region}:${local.account_id}:stateMachine:${local.project_glob}"
+        Resource = "arn:aws:scheduler:${local.region}:${local.account_id}:schedule/default/${local.project_glob}"
       },
     ]
   })
@@ -434,7 +434,7 @@ resource "aws_iam_role_policy" "deployer_iam" {
       {
         # PassRole specifically scoped to the project's runtime roles. This
         # is what lets terraform attach the Lambda execution role to a
-        # function and the Step Functions execution role to a state machine
+        # function and the EventBridge Scheduler role to a schedule target
         # without granting broader PassRole.
         Sid      = "IamPassRoleProject"
         Effect   = "Allow"
@@ -442,13 +442,12 @@ resource "aws_iam_role_policy" "deployer_iam" {
         Resource = "arn:aws:iam::${local.account_id}:role/${local.project_glob}"
         Condition = {
           StringEquals = {
-            # Project Lambdas and Step Functions consume PassRole.
-            # EventBridge targets in this project use aws_lambda_permission
-            # rather than a service role, so we don't need to pass the
-            # project role to events.amazonaws.com.
+            # Project Lambdas consume PassRole; EventBridge Scheduler also
+            # needs it (the scheduler service assumes the project role to
+            # invoke the orchestrator Lambda on the configured cadence).
             "iam:PassedToService" = [
               "lambda.amazonaws.com",
-              "states.amazonaws.com",
+              "scheduler.amazonaws.com",
             ]
           }
         }

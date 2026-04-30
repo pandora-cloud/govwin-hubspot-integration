@@ -69,8 +69,28 @@ module "lambda" {
   govwin_marked_version      = var.govwin_marked_version
   initial_lookback_days      = var.initial_lookback_days
   batch_size                 = var.batch_size
-  max_concurrency            = var.max_concurrency
   log_retention_days         = var.log_retention_days
+}
+
+# -----------------------------------------------------------------------------
+# GovWin -> HubSpot sync (orchestrator + worker fan-out via SQS).
+# Replaces the v2.0 Step Function chain.
+# -----------------------------------------------------------------------------
+
+module "govwin_sync" {
+  source = "./modules/govwin_sync"
+
+  name_prefix        = local.name_prefix
+  aws_region         = var.aws_region
+  sync_schedule      = var.sync_schedule
+  worker_concurrency = var.max_concurrency
+  lambda_role_arn    = module.lambda.lambda_role_arn
+  lambda_role_name   = module.lambda.lambda_role_name
+  lambda_layer_arn   = module.lambda.lambda_layer_arn
+  lambda_source_zip  = module.lambda.lambda_source_zip
+  lambda_source_hash = module.lambda.lambda_source_hash
+  lambda_env         = module.lambda.common_env
+  log_retention_days = var.log_retention_days
 }
 
 # -----------------------------------------------------------------------------
@@ -103,21 +123,3 @@ module "ace" {
   hubspot_webhook_client_secret = var.hubspot_webhook_client_secret
 }
 
-# -----------------------------------------------------------------------------
-# Step Function
-# -----------------------------------------------------------------------------
-
-module "step_function" {
-  source = "./modules/step_function"
-
-  name_prefix           = local.name_prefix
-  sync_schedule         = var.sync_schedule
-  max_concurrency       = var.max_concurrency
-  authenticate_arn      = module.lambda.authenticate_arn
-  discover_changes_arn  = module.lambda.discover_changes_arn
-  fetch_opp_details_arn = module.lambda.fetch_opp_details_arn
-  sync_to_hubspot_arn   = module.lambda.sync_to_hubspot_arn
-  update_sync_state_arn = module.lambda.update_sync_state_arn
-  handle_error_arn      = module.lambda.handle_error_arn
-  lambda_role_arns      = module.lambda.all_lambda_arns
-}
