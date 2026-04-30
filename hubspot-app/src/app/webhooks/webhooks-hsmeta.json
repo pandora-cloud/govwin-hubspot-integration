@@ -12,37 +12,37 @@
           "subscriptionType": "object.propertyChange",
           "objectType": "deal",
           "propertyName": "dealstage",
-          "active": false
+          "active": true
         },
         {
           "subscriptionType": "object.propertyChange",
           "objectType": "deal",
           "propertyName": "amount",
-          "active": false
+          "active": true
         },
         {
           "subscriptionType": "object.propertyChange",
           "objectType": "deal",
           "propertyName": "closedate",
-          "active": false
+          "active": true
         },
         {
           "subscriptionType": "object.propertyChange",
           "objectType": "deal",
           "propertyName": "dealname",
-          "active": false
+          "active": true
         },
         {
           "subscriptionType": "object.propertyChange",
           "objectType": "deal",
           "propertyName": "govwin_ace_delivery_model",
-          "active": false
+          "active": true
         },
         {
           "subscriptionType": "object.propertyChange",
           "objectType": "deal",
           "propertyName": "govwin_ace_partner_need",
-          "active": false
+          "active": true
         }
       ],
       "legacyCrmObjects": [],
