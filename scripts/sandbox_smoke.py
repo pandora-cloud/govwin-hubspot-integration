@@ -166,28 +166,12 @@ def _get_with_retry(client: Any, opp_id: str, attempts: int = 6) -> dict[str, An
 
 
 def _scrub_for_update(current: dict[str, Any]) -> dict[str, Any]:
-    """Reduce a GetOpportunity response to the fields UpdateOpportunity accepts.
-
-    UpdateOpportunity uses PUT semantics (omitted fields are treated as
-    cleared) but the input schema is narrower than the GetOpportunity
-    response. The valid Update params per the boto3 service model are:
-    Catalog, Identifier, LastModifiedDate (passed by the caller),
-    PrimaryNeedsFromAws, NationalSecurity, Customer, Project,
-    OpportunityType, Marketing, SoftwareRevenue, LifeCycle.
-    PartnerOpportunityIdentifier is technically allowed but immutable.
+    """Delegates to the production ACEClient.scrub_for_update so the smoke
+    test exercises the same whitelist as the deployed Lambda. Kept as a
+    thin wrapper to make the smoke script's intent obvious.
     """
-    allowed = {
-        "PrimaryNeedsFromAws",
-        "NationalSecurity",
-        "Customer",
-        "Project",
-        "OpportunityType",
-        "Marketing",
-        "SoftwareRevenue",
-        "LifeCycle",
-        "PartnerOpportunityIdentifier",
-    }
-    return {k: v for k, v in current.items() if k in allowed}
+    from src.ace.client import ACEClient
+    return ACEClient.scrub_for_update(current)
 
 
 def scenario_4_update_with_optimistic_lock(client: Any, opp_id: str) -> str:

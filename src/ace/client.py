@@ -66,6 +66,15 @@ class ACEClient:
     def catalog(self) -> str:
         return self._catalog
 
+    def __enter__(self) -> ACEClient:
+        return self
+
+    def __exit__(self, *args: Any) -> None:
+        # boto3 clients do not require explicit close, but match the
+        # HubSpotClient context-manager pattern so callers can use both
+        # consistently.
+        return None
+
     @retry(
         retry=retry_if_exception(_is_retryable),
         stop=stop_after_attempt(5),
@@ -295,6 +304,16 @@ class ACEClient:
         Catalog, Identifier, and LastModifiedDate are passed by the caller
         and are not part of the body fields we scrub.
         """
+        # AWS UpdateOpportunity has PUT semantics: any field omitted from
+        # the request is treated as null. We must echo every field that
+        # AWS could have on the opportunity, including fields a BD
+        # operator may have set directly in Partner Central UI
+        # (Marketing.CampaignName, SoftwareRevenue, NationalSecurity).
+        # Dropping them would silently clear them on every webhook.
+        #
+        # The whitelist matches the boto3 input shape for UpdateOpportunity
+        # exactly. PartnerOpportunityIdentifier MUST be echoed too: it
+        # carries the GovWin cross-reference and AWS clears it without it.
         allowed = {
             "PrimaryNeedsFromAws",
             "NationalSecurity",
@@ -304,9 +323,6 @@ class ACEClient:
             "Marketing",
             "SoftwareRevenue",
             "LifeCycle",
-            # PartnerOpportunityIdentifier is the partner-side cross-reference
-            # (we use it for the GovWin opp id). AWS's UpdateOpportunity has
-            # PUT semantics, so omitting it CLEARS it. Always echo back.
             "PartnerOpportunityIdentifier",
         }
         return {k: v for k, v in current.items() if k in allowed}

@@ -18,6 +18,18 @@ resource "aws_iam_role" "deployer" {
   description = "Assumed by day-to-day terraform apply runs for the ${local.name_prefix} stack"
   tags        = local.base_tags
 
+  lifecycle {
+    # Production environments must require MFA on assume. The require_mfa
+    # variable can be set to false ONLY for non-prod (sandbox/dev/test).
+    precondition {
+      condition = !(
+        var.environment == "prod"
+        && var.require_mfa_to_assume_deployer == false
+      )
+      error_message = "require_mfa_to_assume_deployer must be true when environment == prod."
+    }
+  }
+
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
@@ -430,10 +442,13 @@ resource "aws_iam_role_policy" "deployer_iam" {
         Resource = "arn:aws:iam::${local.account_id}:role/${local.project_glob}"
         Condition = {
           StringEquals = {
+            # Project Lambdas and Step Functions consume PassRole.
+            # EventBridge targets in this project use aws_lambda_permission
+            # rather than a service role, so we don't need to pass the
+            # project role to events.amazonaws.com.
             "iam:PassedToService" = [
               "lambda.amazonaws.com",
               "states.amazonaws.com",
-              "events.amazonaws.com",
             ]
           }
         }

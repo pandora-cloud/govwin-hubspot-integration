@@ -23,34 +23,34 @@ from src.config import AppConfig
 logger = logging.getLogger(__name__)
 
 
-# Allowed values for ``PrimaryNeedsFromAws`` per the AWS docs (April 2026).
-ALLOWED_PRIMARY_NEEDS: set[str] = {
-    "Co-Sell - Architectural Validation",
-    "Co-Sell - Business Presentation",
-    "Co-Sell - Competitive Information",
-    "Co-Sell - Pricing Assistance",
-    "Co-Sell - Technical Consultation",
-    "Co-Sell - Total Cost of Ownership Evaluation",
-    "Co-Sell - Deal Support",
-    "Co-Sell - Support for Public Tender / RFx",
+# Single source of truth for the PrimaryNeedsFromAws enum.
+# Each entry is (HubSpot label, AWS-published wire value). The HubSpot
+# property options (src/hubspot/properties.py:DEAL_PROPERTIES) and the
+# AWS-side enum match these short and long forms respectively. Two
+# legacy alias entries handle drift: AWS calls it "Competitive
+# Information" but a HubSpot label of "Competitive Intelligence" was in
+# use at one point; both map to the same wire value.
+_PRIMARY_NEED_PAIRS: list[tuple[str, str]] = [
+    ("Architectural Validation", "Co-Sell - Architectural Validation"),
+    ("Business Presentation", "Co-Sell - Business Presentation"),
+    ("Competitive Intelligence", "Co-Sell - Competitive Information"),
+    ("Competitive Information", "Co-Sell - Competitive Information"),
+    ("Pricing Assistance", "Co-Sell - Pricing Assistance"),
+    ("Technical Consultation", "Co-Sell - Technical Consultation"),
+    ("Total Cost of Ownership Evaluation", "Co-Sell - Total Cost of Ownership Evaluation"),
+    ("Deal Support", "Co-Sell - Deal Support"),
+    ("Support for Public Tender", "Co-Sell - Support for Public Tender / RFx"),
+    ("Support for Public Tender / RFx", "Co-Sell - Support for Public Tender / RFx"),
+]
+
+# HubSpot label -> AWS wire value (also handles wire-form pass-through).
+_HUBSPOT_PARTNER_NEED_TO_AWS: dict[str, str] = {
+    **{hubspot_label: aws_value for hubspot_label, aws_value in _PRIMARY_NEED_PAIRS},
+    **{aws_value: aws_value for _, aws_value in _PRIMARY_NEED_PAIRS},
 }
 
-# HubSpot's govwin_ace_partner_need property uses short labels (e.g.
-# "Technical Consultation") but AWS PrimaryNeedsFromAws expects the
-# Co-Sell-prefixed long form. This map normalizes; values already in the
-# AWS-long form pass through unchanged.
-_HUBSPOT_PARTNER_NEED_TO_AWS: dict[str, str] = {
-    "Architectural Validation": "Co-Sell - Architectural Validation",
-    "Business Presentation": "Co-Sell - Business Presentation",
-    "Competitive Intelligence": "Co-Sell - Competitive Information",
-    "Competitive Information": "Co-Sell - Competitive Information",
-    "Pricing Assistance": "Co-Sell - Pricing Assistance",
-    "Technical Consultation": "Co-Sell - Technical Consultation",
-    "Total Cost of Ownership Evaluation": "Co-Sell - Total Cost of Ownership Evaluation",
-    "Deal Support": "Co-Sell - Deal Support",
-    "Support for Public Tender": "Co-Sell - Support for Public Tender / RFx",
-    "Support for Public Tender / RFx": "Co-Sell - Support for Public Tender / RFx",
-}
+# Set of valid AWS wire values, derived from the same canonical list.
+ALLOWED_PRIMARY_NEEDS: set[str] = {aws_value for _, aws_value in _PRIMARY_NEED_PAIRS}
 
 
 def _normalize_partner_need(value: str) -> str:
@@ -117,6 +117,56 @@ ALLOWED_CUSTOMER_USE_CASES: set[str] = {
 DEFAULT_CUSTOMER_USE_CASE = "Migration / Database Migration"
 
 
+# AWS Customer.Account.Industry enum. Sourced from the boto3 service model
+# (partnercentral-selling 2022-07-26).
+ALLOWED_INDUSTRIES: frozenset[str] = frozenset({
+    "Aerospace",
+    "Agriculture",
+    "Automotive",
+    "Computers and Electronics",
+    "Consumer Goods",
+    "Education",
+    "Energy - Oil and Gas",
+    "Energy - Power and Utilities",
+    "Financial Services",
+    "Gaming",
+    "Government",
+    "Healthcare",
+    "Hospitality",
+    "Life Sciences",
+    "Manufacturing",
+    "Marketing and Advertising",
+    "Media and Entertainment",
+    "Mining",
+    "Non-Profit Organization",
+    "Professional Services",
+    "Real Estate and Construction",
+    "Retail",
+    "Software and Internet",
+    "Telecommunications",
+    "Transportation and Logistics",
+    "Travel",
+    "Wholesale and Distribution",
+    "Other",
+})
+
+
+def _normalize_industry(value: str | None) -> tuple[str, str | None]:
+    """Map an arbitrary HubSpot industry to an AWS-accepted enum value.
+
+    Returns ``(industry, other_industry)``. When the supplied value is in
+    the AWS enum, returns it as-is and ``None``. When it isn't, returns
+    ``"Other"`` and the original value (so AWS sees both ``Industry`` and
+    ``OtherIndustry``). When no value is supplied, defaults to
+    ``Government`` (this project's federal-AWS-partner audience).
+    """
+    if not value:
+        return "Government", None
+    if value in ALLOWED_INDUSTRIES:
+        return value, None
+    return "Other", value[:255]
+
+
 # StateOrRegion is a server-side enum that uses full names (with the
 # specific oddity "Dist. of Columbia" instead of "District of Columbia").
 # We keep a postal-code-to-enum-name lookup so HubSpot company records
@@ -150,7 +200,11 @@ def _normalize_state(value: str | None) -> str:
     Accepts the standard 2-letter postal abbreviation (most HubSpot company
     records use this) and returns the matching full name. Unknown values
     pass through unchanged so a real full name like "California" still
-    works, and AWS's enum check is the final gate.
+    works, and AWS's enum check is the final gate. When no value is
+    supplied, defaults to "Dist. of Columbia" because this project's
+    audience is federal AWS partners and most opportunities are
+    DC-centric. Callers that operate outside the US should not invoke
+    this function at all.
     """
     if not value:
         return "Dist. of Columbia"
@@ -189,23 +243,30 @@ def _customer_block(deal: dict[str, Any]) -> dict[str, Any]:
     company_name = (
         _get(deal, "govwin_agency") or _get(deal, "dealname") or "Unknown Federal Agency"
     )
-    industry = _get(deal, "govwin_industry") or "Government"
+    industry, other_industry = _normalize_industry(_get(deal, "govwin_industry"))
     website = _get(deal, "govwin_entity_url") or _get(deal, "website") or "https://www.usa.gov"
     postal_code = _get(deal, "zip") or _get(deal, "govwin_customer_postal_code") or "20001"
-    state = _normalize_state(_get(deal, "state") or _get(deal, "govwin_customer_state"))
-    block: dict[str, Any] = {
-        "Account": {
-            "CompanyName": company_name,
-            "Industry": industry,
-            "WebsiteUrl": website,
-            "Address": {
-                "CountryCode": "US",
-                "PostalCode": postal_code,
-                "StateOrRegion": state,
-            },
-        }
+    country_code = (_get(deal, "govwin_country") or "US").upper()[:2]
+    address: dict[str, Any] = {
+        "CountryCode": country_code,
+        "PostalCode": postal_code,
     }
-    return block
+    # StateOrRegion's enum is enforced server-side ONLY when CountryCode
+    # is "US"; outside the US we let AWS handle whatever string comes in.
+    state_value = _get(deal, "state") or _get(deal, "govwin_customer_state")
+    if country_code == "US":
+        address["StateOrRegion"] = _normalize_state(state_value)
+    elif state_value:
+        address["StateOrRegion"] = state_value
+    account: dict[str, Any] = {
+        "CompanyName": company_name,
+        "Industry": industry,
+        "WebsiteUrl": website,
+        "Address": address,
+    }
+    if other_industry:
+        account["OtherIndustry"] = other_industry
+    return {"Account": account}
 
 
 def _project_block(deal: dict[str, Any]) -> dict[str, Any]:

@@ -22,6 +22,9 @@ import logging
 import os
 from typing import Any
 
+import boto3
+from botocore.exceptions import ClientError
+
 from src.ace.client import ACEAPIError, ACEClient
 from src.ace.mapper import (
     ACEMappingError,
@@ -41,7 +44,41 @@ _PERMANENT_ERROR_CODES: set[str] = {
     "ValidationException",
     "AccessDeniedException",
     "ResourceNotFoundException",
+    "BadRequestException",
 }
+
+
+_sns_client: Any | None = None
+
+
+def _publish_mapping_error_alert(
+    *, config: Any, deal_id: str, govwin_id: str, error: str
+) -> None:
+    """Publish an SNS alert when a deal cannot be mapped to a valid ACE
+    payload, so the BD team gets a visible signal instead of a silent drop.
+    Best-effort: failures here do not fail the SQS message.
+    """
+    topic_arn = config.aws.sns_topic_arn
+    if not topic_arn:
+        logger.info("sns: no topic configured; skipping mapping-error alert")
+        return
+    global _sns_client
+    if _sns_client is None:
+        _sns_client = boto3.client("sns", region_name=config.aws.region)
+    subject = f"ACE submission rejected (deal {deal_id})"[:100]
+    message = (
+        "A HubSpot deal could not be submitted to AWS Partner Central because "
+        "the integration could not map it to a valid CreateOpportunity payload. "
+        "The deal needs to be corrected in HubSpot before resubmission.\n\n"
+        f"HubSpot deal id: {deal_id}\n"
+        f"GovWin opp id: {govwin_id}\n"
+        f"Catalog: {config.ace.catalog}\n"
+        f"Reason: {error}\n"
+    )
+    try:
+        _sns_client.publish(TopicArn=topic_arn, Subject=subject, Message=message)
+    except ClientError as exc:
+        logger.exception("sns publish failed for mapping-error alert: %s", exc)
 
 
 def _trigger_stages() -> set[str]:
@@ -120,6 +157,12 @@ def _process_event(
             )
         except ACEMappingError as exc:
             logger.warning("ACE mapping failed for deal %s: %s", deal_id, exc)
+            _publish_mapping_error_alert(
+                config=config,
+                deal_id=deal_id,
+                govwin_id=govwin_id,
+                error=str(exc),
+            )
             return {"status": "rejected", "reason": str(exc)}
 
         response = ace.create_opportunity(payload)
