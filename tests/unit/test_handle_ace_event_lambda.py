@@ -87,7 +87,11 @@ def test_opportunity_updated_with_approved_status(state_mock, ace_mock, hubspot_
     assert result["status"] == "updated"
     assert result["stage"] == "Approved by AWS"
     ace_mock.get_opportunity.assert_called_once_with("O1")
-    hubspot_mock.update_deal.assert_called_once()
+    # Two update_deal calls now: write-back of cosell_id + status, then dealstage.
+    assert hubspot_mock.update_deal.call_count == 2
+    writeback = hubspot_mock.update_deal.call_args_list[0]
+    assert writeback.args[1]["govwin_aws_cosell_id"] == "O1"
+    assert writeback.args[1]["govwin_aws_cosell_status"] == "Approved"
 
 
 def test_opportunity_updated_skips_when_no_partner_id(state_mock, ace_mock, hubspot_mock) -> None:
@@ -117,7 +121,13 @@ def test_opportunity_updated_skips_when_review_status_unmapped(
         result = handle_ace_event.handler(_opportunity_event(), context=None)
     assert result["status"] == "no-op"
     assert "Pending Submission" in result["reason"]
-    hubspot_mock.update_deal.assert_not_called()
+    # The write-back path still runs (and surfaces 'Pending Submission' on
+    # the deal) even though no stage change happens.
+    hubspot_mock.update_deal.assert_called_once()
+    assert (
+        hubspot_mock.update_deal.call_args.args[1]["govwin_aws_cosell_status"]
+        == "Pending Submission"
+    )
 
 
 def test_opportunity_updated_routes_submitted_to_aws(
@@ -241,7 +251,10 @@ def test_stage_label_missing_in_pipeline_warns_and_skips(
          patch.object(handle_ace_event, "HubSpotClient", return_value=hubspot_mock):
         result = handle_ace_event.handler(_opportunity_event(), context=None)
     assert result["status"] == "skipped"
-    hubspot_mock.update_deal.assert_not_called()
+    # Write-back still runs even when the stage label can't be resolved.
+    # update_deal called once for the write-back, never for dealstage.
+    assert hubspot_mock.update_deal.call_count == 1
+    assert "dealstage" not in hubspot_mock.update_deal.call_args.args[1]
 
 
 def test_archived_deal_is_skipped_no_alert(
@@ -261,9 +274,10 @@ def test_archived_deal_is_skipped_no_alert(
     assert result["status"] == "skipped"
     assert result["reason"] == "deal archived in HubSpot"
     hubspot_mock.update_deal.assert_not_called()
-    # The pre-flight check must have run; otherwise update_deal would have
-    # been the path that detected the archived state via 404.
-    hubspot_mock.is_deal_archived.assert_called_once()
+    # is_deal_archived is now consulted twice: once by the AWS write-back
+    # pre-flight (which short-circuits the cosell_id/status patch) and once
+    # by _update_hubspot_stage. Both must see the archived state.
+    assert hubspot_mock.is_deal_archived.call_count >= 1
     # Nothing higher than INFO should fire -- this is an expected end-state.
     high_severity = [r for r in caplog.records if r.levelno >= 30]
     assert not high_severity, (

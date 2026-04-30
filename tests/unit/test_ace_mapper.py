@@ -56,7 +56,10 @@ class TestMapHubSpotDealToACECreatePayload:
         assert payload["Project"]["CustomerUseCase"] == "Migration / Database Migration"
         assert payload["LifeCycle"]["TargetCloseDate"] == "2026-12-31"
         assert payload["PartnerOpportunityIdentifier"] == "OPP263150"
-        assert payload["Project"]["ExpectedCustomerSpend"][0]["Amount"] == "150000.00"
+        # MRR fix: 150_000 total / 12 months ≈ 12500 monthly. SaaSify
+        # parity (their Expression: Amount * 0.083 ≈ 1/12).
+        assert payload["Project"]["ExpectedCustomerSpend"][0]["Amount"] == "12500.00"
+        assert payload["Project"]["ExpectedCustomerSpend"][0]["Frequency"] == "Monthly"
 
     def test_invalid_customer_use_case_raises(
         self, deal: dict[str, object], app_config: AppConfig
@@ -273,3 +276,248 @@ class TestEnumParity:
             f"HubSpot dropdown govwin_ace_delivery_model exposes values "
             f"not in ALLOWED_DELIVERY_MODELS: {sorted(unknown)}"
         )
+
+
+class TestSaaSifyParity:
+    """SaaSify-parity additions: associated company / contacts / owner,
+    Marketing block, Additional Details, MRR fix, AWS Products list.
+    """
+
+    def test_customer_account_reads_from_associated_company(
+        self, deal: dict[str, object], app_config: AppConfig
+    ) -> None:
+        company = {
+            "id": "c1",
+            "properties": {
+                "name": "Department of Energy",
+                "industry": "Government",
+                "website": "https://www.energy.gov",
+                "address": "1000 Independence Ave SW",
+                "city": "Washington",
+                "state": "DC",
+                "zip": "20585",
+                "country": "United States",
+            },
+        }
+        payload = map_hubspot_deal_to_ace_create_payload(
+            deal, app_config, client_token="tok", company=company
+        )
+        addr = payload["Customer"]["Account"]["Address"]
+        assert payload["Customer"]["Account"]["CompanyName"] == "Department of Energy"
+        assert payload["Customer"]["Account"]["WebsiteUrl"] == "https://www.energy.gov"
+        assert addr["AddressLine1"] == "1000 Independence Ave SW"
+        assert addr["City"] == "Washington"
+        assert addr["StateOrRegion"] == "Dist. of Columbia"  # "DC" normalized
+        assert addr["PostalCode"] == "20585"
+
+    def test_customer_contacts_populated_from_associated_contacts(
+        self, deal: dict[str, object], app_config: AppConfig
+    ) -> None:
+        contacts = [
+            {
+                "id": "1",
+                "properties": {
+                    "firstname": "Jane",
+                    "lastname": "Doe",
+                    "email": "jane.doe@energy.gov",
+                    "jobtitle": "Contracting Officer",
+                    "phone": "202-555-0100",
+                },
+            },
+            {
+                "id": "2",
+                "properties": {
+                    "firstname": "John",
+                    "lastname": "Smith",
+                    "email": "john.smith@energy.gov",
+                    # no title or phone -- still valid
+                },
+            },
+            {
+                "id": "3",
+                "properties": {
+                    # missing email -- must be dropped silently
+                    "firstname": "X",
+                    "lastname": "Y",
+                },
+            },
+        ]
+        payload = map_hubspot_deal_to_ace_create_payload(
+            deal, app_config, client_token="tok", contacts=contacts
+        )
+        out = payload["Customer"]["Contacts"]
+        assert len(out) == 2
+        assert out[0] == {
+            "FirstName": "Jane",
+            "LastName": "Doe",
+            "Email": "jane.doe@energy.gov",
+            "BusinessTitle": "Contracting Officer",
+            "Phone": "+12025550100",  # normalized to E.164
+        }
+        assert out[1]["FirstName"] == "John"
+        assert "BusinessTitle" not in out[1]
+
+    def test_opportunity_team_from_owner(
+        self, deal: dict[str, object], app_config: AppConfig
+    ) -> None:
+        owner = {
+            "id": "42",
+            "firstName": "Isi",
+            "lastName": "Lawson",
+            "email": "isi@pandoracloud.net",
+        }
+        payload = map_hubspot_deal_to_ace_create_payload(
+            deal, app_config, client_token="tok", owner=owner
+        )
+        assert payload["OpportunityTeam"][0]["Email"] == "isi@pandoracloud.net"
+        assert payload["OpportunityTeam"][0]["FirstName"] == "Isi"
+
+    def test_no_owner_omits_opportunity_team(
+        self, deal: dict[str, object], app_config: AppConfig
+    ) -> None:
+        payload = map_hubspot_deal_to_ace_create_payload(
+            deal, app_config, client_token="tok"
+        )
+        assert "OpportunityTeam" not in payload
+
+    def test_marketing_block_emitted_when_source_is_marketing_activity(
+        self, deal: dict[str, object], app_config: AppConfig
+    ) -> None:
+        deal["properties"]["govwin_ace_marketing_source"] = "Marketing Activity"  # type: ignore[index]
+        deal["properties"]["govwin_ace_marketing_campaign_name"] = "AWS Re:Invent 2026"  # type: ignore[index]
+        deal["properties"]["govwin_ace_marketing_dev_funded"] = "Yes"  # type: ignore[index]
+        payload = map_hubspot_deal_to_ace_create_payload(
+            deal, app_config, client_token="tok"
+        )
+        assert payload["Marketing"]["Source"] == "Marketing Activity"
+        assert payload["Marketing"]["CampaignName"] == "AWS Re:Invent 2026"
+        assert payload["Marketing"]["AwsFundingUsed"] == "Yes"
+
+    def test_marketing_block_omitted_when_source_none(
+        self, deal: dict[str, object], app_config: AppConfig
+    ) -> None:
+        """AWS rejects companion Marketing fields when Source is 'None'.
+        Skip the whole block in that case (and when Source is unset)."""
+        deal["properties"]["govwin_ace_marketing_source"] = "None"  # type: ignore[index]
+        deal["properties"]["govwin_ace_marketing_dev_funded"] = "No"  # type: ignore[index]
+        payload = map_hubspot_deal_to_ace_create_payload(
+            deal, app_config, client_token="tok"
+        )
+        assert "Marketing" not in payload
+
+    def test_marketing_block_omitted_when_no_field_set(
+        self, deal: dict[str, object], app_config: AppConfig
+    ) -> None:
+        payload = map_hubspot_deal_to_ace_create_payload(
+            deal, app_config, client_token="tok"
+        )
+        assert "Marketing" not in payload
+
+    def test_zero_amount_omits_expected_customer_spend(
+        self, deal: dict[str, object], app_config: AppConfig
+    ) -> None:
+        """RFI-stage opps often carry amount=0 (no disclosed value yet).
+        AWS regex rejects strict-zero on Amount, so skip the spend entry
+        entirely rather than emit a value AWS will reject."""
+        deal["properties"]["amount"] = "0"  # type: ignore[index]
+        payload = map_hubspot_deal_to_ace_create_payload(
+            deal, app_config, client_token="tok"
+        )
+        assert "ExpectedCustomerSpend" not in payload["Project"]
+
+    def test_additional_details_pass_through(
+        self, deal: dict[str, object], app_config: AppConfig
+    ) -> None:
+        deal["properties"]["govwin_ace_competitor_name"] = "Microsoft Azure"  # type: ignore[index]
+        deal["properties"]["govwin_ace_additional_comments"] = "BD lead Q3"  # type: ignore[index]
+        deal["properties"]["govwin_ace_aws_account_id"] = "123456789012"  # type: ignore[index]
+        deal["properties"]["govwin_ace_related_opportunity_id"] = "O11111111"  # type: ignore[index]
+        deal["properties"]["govwin_ace_next_steps"] = "Schedule discovery call"  # type: ignore[index]
+        payload = map_hubspot_deal_to_ace_create_payload(
+            deal, app_config, client_token="tok"
+        )
+        assert payload["Project"]["CompetitorName"] == "Microsoft Azure"
+        assert payload["Project"]["AdditionalComments"] == "BD lead Q3"
+        assert payload["Project"]["CustomerAwsAccountId"] == "123456789012"
+        assert payload["Project"]["RelatedOpportunityIdentifier"] == "O11111111"
+        assert payload["LifeCycle"]["NextSteps"] == "Schedule discovery call"
+
+    def test_mrr_divides_amount_by_twelve(
+        self, deal: dict[str, object], app_config: AppConfig
+    ) -> None:
+        """The MRR fix: AWS expects ExpectedCustomerSpend.Amount to match
+        Frequency. We bill monthly, so divide by 12. Without this AWS sees
+        12x reality."""
+        deal["properties"]["amount"] = "1200000"  # type: ignore[index] -- $1.2M annual
+        payload = map_hubspot_deal_to_ace_create_payload(
+            deal, app_config, client_token="tok"
+        )
+        spend = payload["Project"]["ExpectedCustomerSpend"][0]
+        assert spend["Amount"] == "100000.00"  # 1.2M / 12
+        assert spend["Frequency"] == "Monthly"
+
+    def test_aws_products_for_deal_splits_csv(
+        self, deal: dict[str, object]
+    ) -> None:
+        from src.ace.mapper import aws_products_for_deal
+        deal["properties"]["govwin_ace_aws_products"] = "AmazonEC2Linux;AWSLambda;AmazonS3"  # type: ignore[index]
+        assert aws_products_for_deal(deal) == ["AmazonEC2Linux", "AWSLambda", "AmazonS3"]
+
+    def test_aws_products_for_deal_empty_when_unset(
+        self, deal: dict[str, object]
+    ) -> None:
+        from src.ace.mapper import aws_products_for_deal
+        assert aws_products_for_deal(deal) == []
+
+
+class TestPhoneNormalization:
+    """AWS rejects the whole CreateOpportunity when any contact phone fails
+    the E.164 regex. We normalize what we can and drop the rest."""
+
+    def test_e164_input_passes_through(self):
+        from src.ace.mapper import _normalize_phone
+        assert _normalize_phone("+12025550100") == "+12025550100"
+        assert _normalize_phone("+1 (202) 555-0100") == "+12025550100"
+
+    def test_us_10_digit_gets_plus_one(self):
+        from src.ace.mapper import _normalize_phone
+        assert _normalize_phone("202-555-0100") == "+12025550100"
+        assert _normalize_phone("(202) 555-0100") == "+12025550100"
+        assert _normalize_phone("2025550100") == "+12025550100"
+
+    def test_us_11_digit_starting_with_1(self):
+        from src.ace.mapper import _normalize_phone
+        assert _normalize_phone("1-202-555-0100") == "+12025550100"
+
+    def test_unparseable_returns_none(self):
+        from src.ace.mapper import _normalize_phone
+        assert _normalize_phone("ext 555") is None
+        assert _normalize_phone("call later") is None
+        assert _normalize_phone("0000") is None
+        assert _normalize_phone("") is None
+        assert _normalize_phone(None) is None
+
+    def test_contact_with_unparseable_phone_drops_phone_only(self, app_config):
+        from src.ace.mapper import map_hubspot_deal_to_ace_create_payload
+        deal = {
+            "properties": {
+                "dealname": "X", "amount": "120000", "closedate": "2026-12-31",
+                "description": "twenty characters needed for cbp ok",
+                "govwin_opp_id": "OPP1", "govwin_agency": "DoD",
+                "govwin_industry": "Government",
+                "govwin_ace_partner_need": "Co-Sell - Technical Consultation",
+                "govwin_ace_delivery_model": "Professional Services",
+            }
+        }
+        contacts = [
+            {"properties": {
+                "firstname": "Jane", "lastname": "Doe", "email": "jd@x.gov",
+                "phone": "ext 555",  # unparseable -- drop only the phone
+            }},
+        ]
+        payload = map_hubspot_deal_to_ace_create_payload(
+            deal, app_config, client_token="t", contacts=contacts,
+        )
+        contact = payload["Customer"]["Contacts"][0]
+        assert contact["Email"] == "jd@x.gov"
+        assert "Phone" not in contact

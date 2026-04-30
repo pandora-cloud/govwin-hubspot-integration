@@ -381,6 +381,126 @@ class HubSpotClient:
             {"properties": properties},
         )
 
+    def get_associated_company(
+        self, deal_id: str, properties: list[str] | None = None
+    ) -> dict[str, Any] | None:
+        """Return the deal's primary associated HubSpot Company, or None.
+
+        Used by the ACE mapper to populate Customer.Account.* from real
+        company data instead of the constants the mapper used pre-SaaSify-
+        parity. HubSpot deals can have multiple company associations; we
+        return the first one found.
+        """
+        try:
+            assoc = self._get(
+                f"crm/v3/objects/deals/{deal_id}/associations/companies"
+            )
+        except HubSpotAPIError as exc:
+            if exc.status_code == 404:
+                return None
+            raise
+        results = assoc.get("results") or []
+        if not results:
+            return None
+        company_id = str(results[0].get("id") or "")
+        if not company_id:
+            return None
+        params: dict[str, Any] = {}
+        if properties:
+            params["properties"] = ",".join(properties)
+        return self._get(f"crm/v3/objects/companies/{company_id}", params=params)
+
+    def get_associated_contacts(
+        self, deal_id: str, properties: list[str] | None = None, limit: int = 10
+    ) -> list[dict[str, Any]]:
+        """Return up to ``limit`` HubSpot Contacts associated with the deal.
+
+        AWS Partner Central's ``Customer.Contacts`` accepts up to 10 entries
+        per opportunity; we cap at the same number even though HubSpot may
+        return more associations.
+        """
+        try:
+            assoc = self._get(
+                f"crm/v3/objects/deals/{deal_id}/associations/contacts"
+            )
+        except HubSpotAPIError as exc:
+            if exc.status_code == 404:
+                return []
+            raise
+        ids = [
+            str(a.get("id"))
+            for a in (assoc.get("results") or [])
+            if a.get("id")
+        ][:limit]
+        contacts: list[dict[str, Any]] = []
+        params: dict[str, Any] = {}
+        if properties:
+            params["properties"] = ",".join(properties)
+        for cid in ids:
+            try:
+                contacts.append(
+                    self._get(f"crm/v3/objects/contacts/{cid}", params=params)
+                )
+            except HubSpotAPIError as exc:
+                if exc.status_code == 404:
+                    continue  # contact archived between association read and fetch
+                raise
+        return contacts
+
+    def get_owner(self, owner_id: str) -> dict[str, Any] | None:
+        """Return the HubSpot user record for a deal owner, or None.
+
+        Used by the ACE mapper to populate OpportunityTeam[] / partner
+        contact fields from the deal's HubSpot owner. ``owner_id`` is the
+        numeric id stored on the deal's ``hubspot_owner_id`` property.
+        """
+        if not owner_id:
+            return None
+        try:
+            return self._get(f"crm/v3/owners/{owner_id}")
+        except HubSpotAPIError as exc:
+            if exc.status_code == 404:
+                return None
+            raise
+
+    def upsert_contact(
+        self, properties: dict[str, Any], id_property: str = "email"
+    ) -> dict[str, Any]:
+        """Idempotent upsert of a single contact by ``id_property`` (default
+        email). Used to create the AWS-side "Hyperscaler Contact" records
+        when AWS publishes EngagementInvitation events.
+        """
+        return self._post(
+            f"crm/v3/objects/contacts/upsert?idProperty={id_property}",
+            {"properties": properties},
+        )
+
+    def associate_objects(
+        self,
+        from_object_type: str,
+        from_id: str,
+        to_object_type: str,
+        to_id: str,
+        association_type_id: int = 1,
+    ) -> None:
+        """Create a single typed association between two HubSpot objects.
+
+        Default ``association_type_id`` 1 is the standard "associated to"
+        type. Used by the AWS-side write-back path to associate Hyperscaler
+        Contact records to the deal and the company.
+        """
+        path = (
+            f"crm/v4/objects/{from_object_type}/{from_id}/associations/default/"
+            f"{to_object_type}/{to_id}"
+        )
+        try:
+            self._put(path, data={})
+        except HubSpotAPIError as exc:
+            if exc.status_code == 409:
+                # association already exists; idempotent
+                return
+            raise
+
     def search_deal_by_govwin_id(self, govwin_opp_id: str) -> dict[str, Any] | None:
         """Search for a deal by its GovWin opportunity ID."""
         result = self._post(

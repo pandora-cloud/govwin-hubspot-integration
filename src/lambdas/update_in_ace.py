@@ -102,6 +102,56 @@ def _apply_delta(payload: dict[str, Any], prop: str, value: Any) -> bool:
         project["CustomerUseCase"] = str(value)
         payload["Project"] = project
         return True
+
+    # SaaSify-parity BD-editable fields. Each is a thin pass-through onto
+    # the AWS UpdateOpportunity payload.
+    if prop == "govwin_ace_competitor_name":
+        project["CompetitorName"] = str(value)[:255] if value else ""
+        payload["Project"] = project
+        return True
+    if prop == "govwin_ace_additional_comments":
+        project["AdditionalComments"] = str(value)[:255] if value else ""
+        payload["Project"] = project
+        return True
+    if prop == "govwin_ace_aws_account_id":
+        project["CustomerAwsAccountId"] = str(value)[:12] if value else ""
+        payload["Project"] = project
+        return True
+    if prop == "govwin_ace_next_steps":
+        life_cycle = dict(payload.get("LifeCycle") or {})
+        life_cycle["NextSteps"] = str(value)[:255] if value else ""
+        payload["LifeCycle"] = life_cycle
+        return True
+    if prop == "govwin_ace_related_opportunity_id":
+        project["RelatedOpportunityIdentifier"] = str(value) if value else ""
+        payload["Project"] = project
+        return True
+
+    # Marketing block. These are optional on AWS's side; we set the whole
+    # block when any one Marketing-* field changes so the block is
+    # consistent (PUT semantics on UpdateOpportunity).
+    marketing_props = {
+        "govwin_ace_marketing_source": "Source",
+        "govwin_ace_marketing_campaign_name": "CampaignName",
+        "govwin_ace_marketing_use_cases": "UseCases",
+        "govwin_ace_marketing_channel": "Channels",
+        "govwin_ace_marketing_dev_funded": "AwsFundingUsed",
+    }
+    if prop in marketing_props:
+        marketing = dict(payload.get("Marketing") or {})
+        aws_field = marketing_props[prop]
+        if aws_field == "UseCases":
+            marketing[aws_field] = (
+                [v.strip() for v in str(value).split(";") if v.strip()]
+                if value else []
+            )
+        elif aws_field == "Channels":
+            marketing[aws_field] = [str(value)] if value else []
+        else:
+            marketing[aws_field] = str(value) if value else ""
+        payload["Marketing"] = marketing
+        return True
+
     return False
 
 
@@ -125,7 +175,12 @@ def _resolve_govwin_id(
 # HubSpot webhooks include the changed property value in propertyValue,
 # but for long string fields the value can be truncated by HubSpot. For
 # these we ignore propertyValue and re-fetch the full deal record.
-_REFETCH_FROM_HUBSPOT_PROPERTIES: frozenset[str] = frozenset({"description", "dealname"})
+_REFETCH_FROM_HUBSPOT_PROPERTIES: frozenset[str] = frozenset({
+    "description",
+    "dealname",
+    "govwin_ace_additional_comments",
+    "govwin_ace_next_steps",
+})
 
 
 def _resolve_property_value(

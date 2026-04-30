@@ -248,35 +248,106 @@ def _get(deal: dict[str, Any], key: str) -> Any:
     return deal.get(key)
 
 
-def _customer_block(deal: dict[str, Any]) -> dict[str, Any]:
-    """Build the Customer.Account block from agency / industry properties.
+_COUNTRY_NAME_TO_ISO2: dict[str, str] = {
+    "UNITED STATES": "US",
+    "UNITED STATES OF AMERICA": "US",
+    "USA": "US",
+    "U.S.": "US",
+    "U.S.A.": "US",
+    "AMERICA": "US",
+    "CANADA": "CA",
+    "UNITED KINGDOM": "GB",
+    "UK": "GB",
+    "GREAT BRITAIN": "GB",
+}
 
-    Sandbox business validation requires WebsiteUrl, Address.PostalCode,
-    and Address.StateOrRegion in addition to CompanyName. Production may
-    require more. We pull from HubSpot company-association fields when
-    available and fall back to GovWin agency defaults.
+
+def _normalize_country(value: str) -> str:
+    """Convert a HubSpot country string to AWS's expected ISO-2 code.
+
+    HubSpot company records typically carry full country names ("United
+    States") but AWS Partner Central requires ISO-3166 alpha-2. Two-letter
+    inputs pass through untouched so SaaSify-shaped data works.
+    """
+    if not value:
+        return "US"
+    upper = value.strip().upper()
+    if len(upper) == 2:
+        return upper
+    return _COUNTRY_NAME_TO_ISO2.get(upper, upper[:2])
+
+
+def _company_prop(company: dict[str, Any] | None, key: str) -> str | None:
+    if not company:
+        return None
+    props = company.get("properties") or {}
+    val = props.get(key) or company.get(key)
+    return str(val) if val else None
+
+
+def _customer_block(
+    deal: dict[str, Any], company: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    """Build the Customer.Account block.
+
+    Reads customer fields from the deal's associated HubSpot Company when
+    one is provided (the SaaSify-parity architecture). Falls back to deal-
+    level GovWin properties when no company is associated yet (still
+    happens during early sync windows or when test fixtures pass minimal
+    payloads).
 
     CountryCode lives under Customer.Account.Address (not flat on Account)
-    per the AWS Partner Central Selling API shape.
+    per the AWS Partner Central Selling API shape. StateOrRegion's enum
+    is enforced server-side ONLY when CountryCode is "US"; outside the US
+    we pass whatever string comes in.
     """
     company_name = (
-        _get(deal, "govwin_agency") or _get(deal, "dealname") or "Unknown Federal Agency"
+        _company_prop(company, "name")
+        or _get(deal, "govwin_agency")
+        or _get(deal, "dealname")
+        or "Unknown Federal Agency"
     )
-    industry, other_industry = _normalize_industry(_get(deal, "govwin_industry"))
-    website = _get(deal, "govwin_entity_url") or _get(deal, "website") or "https://www.usa.gov"
-    postal_code = _get(deal, "zip") or _get(deal, "govwin_customer_postal_code") or "20001"
-    country_code = (_get(deal, "govwin_country") or "US").upper()[:2]
+    industry_raw = (
+        _company_prop(company, "industry") or _get(deal, "govwin_industry")
+    )
+    industry, other_industry = _normalize_industry(industry_raw)
+    website = (
+        _company_prop(company, "website")
+        or _company_prop(company, "domain")
+        or _get(deal, "govwin_entity_url")
+        or "https://www.usa.gov"
+    )
+    # Read full address from the associated company; fall back to GovWin
+    # agency defaults only when the company record is empty.
+    street = _company_prop(company, "address")
+    city = _company_prop(company, "city")
+    postal_code = (
+        _company_prop(company, "zip")
+        or _get(deal, "govwin_customer_postal_code")
+        or "20001"
+    )
+    country_raw = (
+        _company_prop(company, "country") or _get(deal, "govwin_country") or "US"
+    )
+    country_code = _normalize_country(country_raw)
+    state_value = (
+        _company_prop(company, "state")
+        or _get(deal, "govwin_customer_state")
+    )
+
     address: dict[str, Any] = {
         "CountryCode": country_code,
         "PostalCode": postal_code,
     }
-    # StateOrRegion's enum is enforced server-side ONLY when CountryCode
-    # is "US"; outside the US we let AWS handle whatever string comes in.
-    state_value = _get(deal, "state") or _get(deal, "govwin_customer_state")
+    if street:
+        address["AddressLine1"] = street[:255]
+    if city:
+        address["City"] = city[:50]
     if country_code == "US":
         address["StateOrRegion"] = _normalize_state(state_value)
     elif state_value:
         address["StateOrRegion"] = state_value
+
     account: dict[str, Any] = {
         "CompanyName": company_name,
         "Industry": industry,
@@ -286,6 +357,131 @@ def _customer_block(deal: dict[str, Any]) -> dict[str, Any]:
     if other_industry:
         account["OtherIndustry"] = other_industry
     return {"Account": account}
+
+
+def _normalize_phone(value: str | None) -> str | None:
+    """Convert a HubSpot phone string to E.164 (e.g. ``+12025550100``).
+
+    AWS Partner Central enforces ``\\+[1-9]\\d{1,14}`` on phone fields and
+    rejects the entire submission when any contact phone fails. HubSpot
+    accepts free-form phone strings, so we strip non-digits, prepend ``+1``
+    for plausibly-US 10-digit numbers, and return None when the input
+    cannot be salvaged. Callers drop the field rather than emit an
+    unparseable value.
+    """
+    if not value:
+        return None
+    raw = str(value).strip()
+    if not raw:
+        return None
+    if raw.startswith("+"):
+        # User-supplied E.164. Strip whitespace and validate.
+        digits = "".join(ch for ch in raw[1:] if ch.isdigit())
+        if 7 <= len(digits) <= 15 and digits[0] != "0":
+            return f"+{digits}"
+        return None
+    digits = "".join(ch for ch in raw if ch.isdigit())
+    if len(digits) == 10:
+        return f"+1{digits}"  # plausible US number
+    if len(digits) == 11 and digits.startswith("1"):
+        return f"+{digits}"
+    if 7 <= len(digits) <= 15 and digits[0] != "0":
+        return f"+{digits}"  # international without explicit "+"
+    return None
+
+
+def _customer_contacts(
+    contacts: list[dict[str, Any]] | None,
+) -> list[dict[str, Any]]:
+    """Build Customer.Contacts[] from associated HubSpot Contact records.
+
+    AWS accepts up to 10 entries per opportunity; the HubSpotClient already
+    caps at that. AWS requires at least FirstName, LastName, Email per
+    contact; entries missing any of those are dropped silently rather than
+    raising the whole submission.
+    """
+    out: list[dict[str, Any]] = []
+    for c in contacts or []:
+        props = c.get("properties") or {}
+        first = props.get("firstname") or props.get("firstName")
+        last = props.get("lastname") or props.get("lastName")
+        email = props.get("email")
+        if not (first and last and email):
+            continue
+        entry: dict[str, Any] = {
+            "FirstName": str(first)[:80],
+            "LastName": str(last)[:80],
+            "Email": str(email)[:80],
+        }
+        title = props.get("jobtitle") or props.get("jobTitle")
+        if title:
+            entry["BusinessTitle"] = str(title)[:80]
+        # AWS enforces E.164 on phones and rejects the whole submission on
+        # mismatch. Normalize; drop the field when un-salvageable rather
+        # than fail the whole opportunity for an optional value.
+        phone = _normalize_phone(props.get("phone"))
+        if phone:
+            entry["Phone"] = phone
+        out.append(entry)
+    return out[:10]
+
+
+def _opportunity_team(owner: dict[str, Any] | None) -> list[dict[str, Any]]:
+    """Build OpportunityTeam[] from the HubSpot deal owner.
+
+    AWS attributes the engagement to this person on the partner side; SaaSify
+    pulls (Owner).First Name / Last Name / Email and we mirror that. Returns
+    an empty list when no owner is set so the caller can omit the field
+    rather than emit a malformed payload.
+    """
+    if not owner:
+        return []
+    first = owner.get("firstName") or owner.get("first_name")
+    last = owner.get("lastName") or owner.get("last_name")
+    email = owner.get("email")
+    if not (first and last and email):
+        return []
+    return [
+        {
+            "FirstName": str(first)[:80],
+            "LastName": str(last)[:80],
+            "Email": str(email)[:80],
+            "BusinessTitle": "Partner",
+        }
+    ]
+
+
+def _marketing_block(deal: dict[str, Any]) -> dict[str, Any] | None:
+    """Build the Marketing block from BD-editable HubSpot properties.
+
+    AWS makes the entire Marketing block optional; we emit it only when at
+    least one BD-edited field is set, so opportunities with no marketing
+    attribution don't carry empty defaults to AWS.
+    """
+    source = _get(deal, "govwin_ace_marketing_source")
+    campaign = _get(deal, "govwin_ace_marketing_campaign_name")
+    use_cases = _get(deal, "govwin_ace_marketing_use_cases")
+    channel = _get(deal, "govwin_ace_marketing_channel")
+    funded = _get(deal, "govwin_ace_marketing_dev_funded")
+    # AWS validation: the Marketing block as a whole is only meaningful
+    # when Source is "Marketing Activity". When Source is "None" or unset,
+    # AWS rejects companion fields (CampaignName, AwsFundingUsed, etc.)
+    # with ACTION_NOT_PERMITTED. Two outcomes:
+    #   1. Source == "Marketing Activity" -> emit the full block
+    #   2. Source is "None" / unset       -> emit nothing (skip block)
+    is_marketing_sourced = (str(source) if source else "None") == "Marketing Activity"
+    if not is_marketing_sourced:
+        return None
+    block: dict[str, Any] = {"Source": "Marketing Activity"}
+    if campaign:
+        block["CampaignName"] = str(campaign)[:255]
+    if use_cases:
+        block["UseCases"] = _split_csv(use_cases)
+    if channel:
+        block["Channels"] = [str(channel)]
+    if funded:
+        block["AwsFundingUsed"] = funded  # "Yes" / "No"
+    return block
 
 
 def _project_block(deal: dict[str, Any]) -> dict[str, Any]:
@@ -370,17 +566,42 @@ def _project_block(deal: dict[str, Any]) -> dict[str, Any]:
     amount = _get(deal, "amount")
     if amount:
         try:
-            spend = float(amount)
-            project["ExpectedCustomerSpend"] = [
-                {
-                    "Amount": f"{spend:.2f}",
-                    "CurrencyCode": "USD",
-                    "Frequency": "Monthly",
-                    "TargetCompany": "Pandora Cloud LLC",
-                }
-            ]
+            # HubSpot stores deal amount as the total (typically annual or
+            # full contract value). AWS expects ExpectedCustomerSpend.Amount
+            # to match the declared Frequency. We bill the deal monthly, so
+            # divide by 12 to get the monthly equivalent. SaaSify uses the
+            # same factor (Expression: Amount * 0.083 ≈ 1/12). Without this,
+            # AWS reviewers see 12x the real spend.
+            total = float(amount)
+            # AWS regex on Amount rejects strict-zero. RFI-stage opps often
+            # carry amount=0 (no value disclosed yet); skip the spend entry
+            # entirely rather than emit a value AWS will reject.
+            if total > 0:
+                monthly = total / 12.0
+                project["ExpectedCustomerSpend"] = [
+                    {
+                        "Amount": f"{monthly:.2f}",
+                        "CurrencyCode": "USD",
+                        "Frequency": "Monthly",
+                        "TargetCompany": "Pandora Cloud LLC",
+                    }
+                ]
         except (TypeError, ValueError):
             logger.warning("ace.mapper: invalid amount %r on deal %s", amount, deal.get("id"))
+
+    # BD-editable additions (SaaSify parity).
+    additional = _get(deal, "govwin_ace_additional_comments")
+    if additional:
+        project["AdditionalComments"] = str(additional)[:255]
+    competitor = _get(deal, "govwin_ace_competitor_name")
+    if competitor:
+        project["CompetitorName"] = str(competitor)[:255]
+    related = _get(deal, "govwin_ace_related_opportunity_id")
+    if related:
+        project["RelatedOpportunityIdentifier"] = str(related)
+    aws_acct = _get(deal, "govwin_ace_aws_account_id")
+    if aws_acct:
+        project["CustomerAwsAccountId"] = str(aws_acct)[:12]
 
     return project
 
@@ -408,6 +629,9 @@ def _life_cycle_block(deal: dict[str, Any]) -> dict[str, Any]:
         block["TargetCloseDate"] = (
             datetime.now(UTC) + timedelta(days=180)
         ).strftime("%Y-%m-%d")
+    next_steps = _get(deal, "govwin_ace_next_steps")
+    if next_steps:
+        block["NextSteps"] = str(next_steps)[:255]
     return block
 
 
@@ -416,12 +640,23 @@ def map_hubspot_deal_to_ace_create_payload(
     config: AppConfig,
     *,
     client_token: str,
+    company: dict[str, Any] | None = None,
+    contacts: list[dict[str, Any]] | None = None,
+    owner: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build a ``CreateOpportunity`` payload from a HubSpot deal.
 
     :param deal: HubSpot deal record (either flat or nested ``{properties: {...}}``).
     :param config: app config (provides catalog and default origin/involvement).
     :param client_token: caller-supplied UUID; persist before calling ``CreateOpportunity``.
+    :param company: associated HubSpot Company; if provided, Customer.Account.*
+        is populated from it (SaaSify-parity). Caller fetches via
+        ``HubSpotClient.get_associated_company``.
+    :param contacts: associated HubSpot Contacts; mapped into
+        ``Customer.Contacts[]``. Caller fetches via
+        ``HubSpotClient.get_associated_contacts``.
+    :param owner: HubSpot user record for the deal owner; mapped into
+        ``OpportunityTeam[]``. Caller fetches via ``HubSpotClient.get_owner``.
     :raises ACEMappingError: when required manual fields are missing or invalid.
     """
     primary_needs_raw = _split_csv(_get(deal, "govwin_ace_partner_need"))
@@ -441,6 +676,11 @@ def map_hubspot_deal_to_ace_create_payload(
 
     govwin_id = _get(deal, "govwin_opp_id") or _get(deal, "govwin_iq_opp_id")
 
+    customer: dict[str, Any] = _customer_block(deal, company)
+    contact_list = _customer_contacts(contacts)
+    if contact_list:
+        customer["Contacts"] = contact_list
+
     payload: dict[str, Any] = {
         "Catalog": config.ace.catalog,
         "ClientToken": client_token,
@@ -448,12 +688,30 @@ def map_hubspot_deal_to_ace_create_payload(
         "OpportunityType": "Net New Business",
         "PrimaryNeedsFromAws": primary_needs,
         "Project": _project_block(deal),
-        "Customer": _customer_block(deal),
+        "Customer": customer,
         "LifeCycle": _life_cycle_block(deal),
     }
     if govwin_id:
         payload["PartnerOpportunityIdentifier"] = str(govwin_id)
+
+    team = _opportunity_team(owner)
+    if team:
+        payload["OpportunityTeam"] = team
+
+    marketing = _marketing_block(deal)
+    if marketing:
+        payload["Marketing"] = marketing
+
     return payload
+
+
+def aws_products_for_deal(deal: dict[str, Any]) -> list[str]:
+    """Return the list of AWS product Identifiers BD has tagged on the deal.
+
+    Used by ``submit_to_ace`` to drive AssociateOpportunity calls per
+    AwsProducts entry. Empty list means no per-deal AWS products specified.
+    """
+    return _split_csv(_get(deal, "govwin_ace_aws_products"))
 
 
 def resolve_solution_id(deal: dict[str, Any], config: AppConfig) -> str:

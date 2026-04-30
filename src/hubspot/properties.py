@@ -351,6 +351,168 @@ DEAL_PROPERTIES: list[HubSpotProperty] = [
             "title when this is blank."
         ),
     ),
+    # ---------------------------------------------------------------------
+    # AWS write-back properties (populated by handle_ace_event Lambda when
+    # AWS publishes EventBridge events). Read-only from BD's perspective;
+    # they exist so BD can see AWS-side state without leaving HubSpot.
+    # ---------------------------------------------------------------------
+    HubSpotProperty(
+        name="govwin_aws_cosell_id",
+        label="AWS Co-sell ID",
+        type="string",
+        fieldType="text",
+        description=(
+            "AWS Partner Central opportunity id (O...). Populated by "
+            "handle_ace_event after CreateOpportunity succeeds."
+        ),
+    ),
+    HubSpotProperty(
+        name="govwin_aws_cosell_status",
+        label="AWS Co-sell Status",
+        type="string",
+        fieldType="text",
+        description=(
+            "Latest AWS-side LifeCycle.ReviewStatus. Updated on every "
+            "Opportunity Updated EventBridge event."
+        ),
+    ),
+    HubSpotProperty(
+        name="govwin_aws_marketplace_engagement_score",
+        label="AWS Marketplace Engagement Score",
+        type="string",
+        fieldType="text",
+        description=(
+            "AWS Marketplace engagement score (when AWS publishes it). "
+            "Empty for opportunities that AWS has not scored."
+        ),
+    ),
+    # ---------------------------------------------------------------------
+    # Marketing block (BD-editable; defaults match SaaSify's "No" defaults)
+    # ---------------------------------------------------------------------
+    HubSpotProperty(
+        name="govwin_ace_marketing_source",
+        label="ACE Marketing Source",
+        type="enumeration",
+        fieldType="select",
+        description="Was this opportunity sourced from a marketing activity?",
+        options=[
+            {"label": "None", "value": "None"},
+            {"label": "Marketing Activity", "value": "Marketing Activity"},
+        ],
+    ),
+    HubSpotProperty(
+        name="govwin_ace_marketing_campaign_name",
+        label="ACE Marketing Campaign Name",
+        type="string",
+        fieldType="text",
+        description="Marketing campaign that sourced the opportunity (if any).",
+    ),
+    HubSpotProperty(
+        name="govwin_ace_marketing_use_cases",
+        label="ACE Marketing Use Cases",
+        type="string",
+        fieldType="text",
+        description="Comma-separated marketing use cases for AWS attribution.",
+    ),
+    HubSpotProperty(
+        name="govwin_ace_marketing_channel",
+        label="ACE Marketing Channel",
+        type="enumeration",
+        fieldType="select",
+        description="Marketing channel that sourced the opportunity.",
+        options=[
+            {"label": "AWS Marketing Central", "value": "AWS Marketing Central"},
+            {"label": "Content Syndication", "value": "Content Syndication"},
+            {"label": "Display", "value": "Display"},
+            {"label": "Email", "value": "Email"},
+            {"label": "Live Event", "value": "Live Event"},
+            {"label": "Out Of Home (OOH)", "value": "Out Of Home (OOH)"},
+            {"label": "Print", "value": "Print"},
+            {"label": "Search", "value": "Search"},
+            {"label": "Social", "value": "Social"},
+            {"label": "TV", "value": "TV"},
+            {"label": "Video", "value": "Video"},
+            {"label": "Virtual Event", "value": "Virtual Event"},
+        ],
+    ),
+    HubSpotProperty(
+        name="govwin_ace_marketing_dev_funded",
+        label="ACE Marketing Development Funded",
+        type="enumeration",
+        fieldType="select",
+        description="Did this opportunity use AWS Marketing Development Funds?",
+        options=[
+            {"label": "No", "value": "No"},
+            {"label": "Yes", "value": "Yes"},
+        ],
+    ),
+    # ---------------------------------------------------------------------
+    # Additional Details (BD-editable)
+    # ---------------------------------------------------------------------
+    HubSpotProperty(
+        name="govwin_ace_competitor_name",
+        label="ACE Competitor Name",
+        type="string",
+        fieldType="text",
+        description=(
+            "Competitor on this deal (e.g. 'Microsoft Azure'). Maps to "
+            "Project.CompetitorName for AWS reviewer context."
+        ),
+    ),
+    HubSpotProperty(
+        name="govwin_ace_additional_comments",
+        label="ACE Additional Comments",
+        type="string",
+        fieldType="textarea",
+        description=(
+            "BD-curated context for the AWS reviewer. Maps to "
+            "Project.AdditionalComments. Supplements the GovWin-derived "
+            "description."
+        ),
+    ),
+    HubSpotProperty(
+        name="govwin_ace_aws_account_id",
+        label="ACE Customer AWS Account ID",
+        type="string",
+        fieldType="text",
+        description=(
+            "Customer's AWS account number (12 digits). Populated when the "
+            "customer is an existing AWS account holder."
+        ),
+    ),
+    HubSpotProperty(
+        name="govwin_ace_next_steps",
+        label="ACE Next Steps",
+        type="string",
+        fieldType="textarea",
+        description=(
+            "BD-curated next steps. Maps to LifeCycle.NextSteps; surfaces "
+            "in the AWS reviewer UI."
+        ),
+    ),
+    HubSpotProperty(
+        name="govwin_ace_related_opportunity_id",
+        label="ACE Related Opportunity ID",
+        type="string",
+        fieldType="text",
+        description=(
+            "Prior AWS opportunity (O...) for renewals / expansions. Maps "
+            "to Project.RelatedOpportunityIdentifier."
+        ),
+    ),
+    HubSpotProperty(
+        name="govwin_ace_aws_products",
+        label="ACE AWS Products",
+        type="string",
+        fieldType="text",
+        description=(
+            "Semicolon-separated AWS product Identifiers from "
+            "github.com/aws-samples/partner-crm-integration-samples/"
+            "resources/aws_products.json (e.g. 'AmazonEC2Linux;AmazonS3;"
+            "AWSLambda'). Each is associated to the opportunity via "
+            "AssociateOpportunity at submit time."
+        ),
+    ),
 ]
 
 # ---------------------------------------------------------------------------

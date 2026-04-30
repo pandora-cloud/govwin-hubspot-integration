@@ -28,6 +28,18 @@ UPDATE_TRIGGER_PROPERTIES: frozenset[str] = frozenset(
         "dealname",
         "description",
         "govwin_ace_use_case",
+        # SaaSify-parity additions; each is a BD-editable property that
+        # update_in_ace._apply_delta forwards to AWS UpdateOpportunity.
+        "govwin_ace_competitor_name",
+        "govwin_ace_additional_comments",
+        "govwin_ace_aws_account_id",
+        "govwin_ace_next_steps",
+        "govwin_ace_related_opportunity_id",
+        "govwin_ace_marketing_source",
+        "govwin_ace_marketing_campaign_name",
+        "govwin_ace_marketing_use_cases",
+        "govwin_ace_marketing_channel",
+        "govwin_ace_marketing_dev_funded",
     }
 )
 

@@ -108,6 +108,31 @@ def _handle_opportunity_event(
         return {"status": "skipped", "reason": "no hubspot deal mapping"}
 
     review_status = str((full.get("LifeCycle") or {}).get("ReviewStatus") or "")
+
+    # Write-back to HubSpot deal properties so BD sees AWS-side state
+    # without leaving HubSpot. SaaSify parity: aws_cosell_id, aws_cosell_status,
+    # aws_marketplace_engagement_score. Always attempted (even when the
+    # ReviewStatus doesn't drive a dealstage change), but defensive against
+    # archived deals so it doesn't 404 alarm the on-call.
+    try:
+        if not hubspot.is_deal_archived(str(deal_id)):
+            engagement_score = (
+                full.get("AwsOpportunitySummary") or {}
+            ).get("MarketplaceEngagementScore")
+            writeback: dict[str, Any] = {
+                "govwin_aws_cosell_id": str(full.get("Id") or ""),
+                "govwin_aws_cosell_status": review_status,
+            }
+            if engagement_score is not None:
+                writeback["govwin_aws_marketplace_engagement_score"] = str(
+                    engagement_score
+                )
+            hubspot.update_deal(str(deal_id), writeback)
+    except Exception:  # noqa: BLE001 -- write-back is best-effort
+        logger.exception(
+            "handle_ace_event: AWS write-back failed for deal %s", deal_id
+        )
+
     target_stage = _DEALSTAGE_BY_AWS_REVIEW.get(review_status)
     if not target_stage:
         # "Pending Submission" fires on every CreateOpportunity (and on the
@@ -136,6 +161,52 @@ def _handle_opportunity_event(
     return {"status": "updated", "deal_id": deal_id, "stage": target_stage}
 
 
+def _create_hyperscaler_contacts(
+    *,
+    invitation: dict[str, Any],
+    deal_id: str,
+    company_id: str | None,
+    hubspot: HubSpotClient,
+) -> int:
+    """Create / upsert HubSpot Contact records for AWS-side participants.
+
+    SaaSify parity: when AWS publishes EngagementInvitation events, the
+    invitation detail can include AWS reviewer / PDM contacts. We mirror
+    them as HubSpot Contacts labeled "Hyperscaler Contact" and associate
+    each one to the deal and (when known) the company. Best-effort:
+    contact creation failures are logged but never block stage updates.
+    """
+    aws_contacts = invitation.get("invitationContacts") or invitation.get("contacts") or []
+    created = 0
+    for c in aws_contacts:
+        email = (c.get("email") or "").strip()
+        first = (c.get("firstName") or c.get("first_name") or "").strip()
+        last = (c.get("lastName") or c.get("last_name") or "").strip()
+        if not email:
+            continue
+        try:
+            response = hubspot.upsert_contact({
+                "email": email,
+                "firstname": first,
+                "lastname": last,
+                "company": "AWS",
+                "jobtitle": c.get("businessTitle") or "AWS Partner Development Manager",
+                "lifecyclestage": "other",
+                "hs_lead_status": "HYPERSCALER_CONTACT",
+            })
+            contact_id = str(response.get("id") or "")
+            if contact_id:
+                hubspot.associate_objects("contacts", contact_id, "deals", deal_id)
+                if company_id:
+                    hubspot.associate_objects(
+                        "contacts", contact_id, "companies", company_id
+                    )
+                created += 1
+        except Exception:  # noqa: BLE001 -- best-effort
+            logger.exception("hyperscaler contact upsert failed for %r", email)
+    return created
+
+
 def _handle_invitation_event(
     detail_type: str,
     detail: dict[str, Any],
@@ -159,6 +230,23 @@ def _handle_invitation_event(
                 invitation_id,
                 invitation.get("engagementId"),
             )
+        # Sender-side: AWS may include the reviewer's contact info. Create
+        # Hyperscaler Contact records for visibility.
+        try:
+            partner_id = state.find_govwin_by_invitation_id(str(invitation_id))
+            mapping = state.get_ace_mapping(partner_id) if partner_id else None
+            deal_id = (mapping or {}).get("hubspot_deal_id")
+            if deal_id:
+                company = hubspot.get_associated_company(str(deal_id))
+                company_id = str(company.get("id")) if company else None
+                _create_hyperscaler_contacts(
+                    invitation=invitation,
+                    deal_id=str(deal_id),
+                    company_id=company_id,
+                    hubspot=hubspot,
+                )
+        except Exception:  # noqa: BLE001 -- best-effort
+            logger.exception("hyperscaler contact creation failed")
         return {"status": "logged", "invitation_id": invitation_id}
 
     if detail_type == "Engagement Invitation Accepted":
