@@ -3,7 +3,7 @@
   "type": "webhooks",
   "config": {
     "settings": {
-      "targetUrl": "https://www.example.com/hubspot",
+      "targetUrl": "https://np1hq84j21.execute-api.us-east-1.amazonaws.com/hubspot",
       "maxConcurrentRequests": 10
     },
     "subscriptions": {

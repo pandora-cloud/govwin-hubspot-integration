@@ -64,16 +64,13 @@ def _build_update(prop: str, value: Any) -> dict[str, Any] | None:
     if prop == "dealname":
         return {"Project": {"Title": str(value)[:255]}}
     if prop == "description":
-        text = str(value)[:1500]
-        # Mirror the create-mapper which writes the same content into both
-        # business problem and use-case fields. Tracked for split when BD
-        # provides distinct HubSpot inputs.
-        return {
-            "Project": {
-                "CustomerBusinessProblem": text,
-                "CustomerUseCase": text,
-            }
-        }
+        # CustomerBusinessProblem is free text; CustomerUseCase is an
+        # AWS-published enum, so we never write the description into it.
+        # CustomerUseCase changes flow through the dedicated
+        # govwin_ace_use_case property handler below.
+        return {"Project": {"CustomerBusinessProblem": str(value)[:1500]}}
+    if prop == "govwin_ace_use_case":
+        return {"Project": {"CustomerUseCase": str(value)}}
     return None
 
 

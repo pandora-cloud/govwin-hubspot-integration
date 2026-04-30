@@ -45,6 +45,96 @@ ALLOWED_DELIVERY_MODELS: set[str] = {
     "Other",
 }
 
+# Allowed values for ``Project.CustomerUseCase``. Server-side enum (not in
+# the boto3 client model). Sourced from the API's ValidationException error
+# message; refresh by calling CreateOpportunity with an invalid value to
+# get the latest list. The enum is broader than just "what AWS service is
+# being used"; treat as a use-case category.
+ALLOWED_CUSTOMER_USE_CASES: set[str] = {
+    "AI Machine Learning and Analytics",
+    "Archiving",
+    "Big Data: Data Warehouse / Data Integration / ETL / Data Lake / BI",
+    "Blockchain",
+    "Business Applications: Mainframe Modernization",
+    "Business Applications & Contact Center",
+    "Business Applications & SAP Production",
+    "Centralized Operations Management",
+    "Cloud Management Tools",
+    "Cloud Management Tools & DevOps with Continuous Integration & Continuous Delivery (CICD)",
+    "Configuration, Compliance & Auditing",
+    "Connected Services",
+    "Containers & Serverless",
+    "Content Delivery & Edge Services",
+    "Database",
+    "Edge Computing / End User Computing",
+    "Energy",
+    "Enterprise Governance & Controls",
+    "Enterprise Resource Planning",
+    "Financial Services",
+    "Healthcare and Life Sciences",
+    "High Performance Computing",
+    "Hybrid Application Platform",
+    "Industrial Software",
+    "IOT",
+    "Manufacturing, Supply Chain and Operations",
+    "Media & High performance computing (HPC)",
+    "Migration / Database Migration",
+    "Monitoring, logging and performance",
+    "Monitoring & Observability",
+    "Networking",
+    "Outpost",
+    "SAP",
+    "Security & Compliance",
+    "Storage & Backup",
+    "Training",
+    "VMC",
+    "VMWare",
+    "Web development & DevOps",
+}
+
+DEFAULT_CUSTOMER_USE_CASE = "Migration / Database Migration"
+
+
+# StateOrRegion is a server-side enum that uses full names (with the
+# specific oddity "Dist. of Columbia" instead of "District of Columbia").
+# We keep a postal-code-to-enum-name lookup so HubSpot company records
+# carrying the standard 2-letter abbreviation Just Work; everything else
+# falls through unchanged.
+_STATE_ABBR_TO_FULL: dict[str, str] = {
+    "AL": "Alabama", "AK": "Alaska", "AS": "American Samoa", "AZ": "Arizona",
+    "AR": "Arkansas", "CA": "California", "CO": "Colorado", "CT": "Connecticut",
+    "DE": "Delaware", "DC": "Dist. of Columbia",
+    "FM": "Federated States of Micronesia", "FL": "Florida", "GA": "Georgia",
+    "GU": "Guam", "HI": "Hawaii", "ID": "Idaho", "IL": "Illinois",
+    "IN": "Indiana", "IA": "Iowa", "KS": "Kansas", "KY": "Kentucky",
+    "LA": "Louisiana", "ME": "Maine", "MH": "Marshall Islands",
+    "MD": "Maryland", "MA": "Massachusetts", "MI": "Michigan",
+    "MN": "Minnesota", "MS": "Mississippi", "MO": "Missouri", "MT": "Montana",
+    "NE": "Nebraska", "NV": "Nevada", "NH": "New Hampshire",
+    "NJ": "New Jersey", "NM": "New Mexico", "NY": "New York",
+    "NC": "North Carolina", "ND": "North Dakota", "OH": "Ohio",
+    "OK": "Oklahoma", "OR": "Oregon", "PW": "Palau", "PA": "Pennsylvania",
+    "PR": "Puerto Rico", "RI": "Rhode Island", "SC": "South Carolina",
+    "SD": "South Dakota", "TN": "Tennessee", "TX": "Texas", "UT": "Utah",
+    "VT": "Vermont", "VA": "Virginia", "VI": "Virgin Islands",
+    "WA": "Washington", "WV": "West Virginia", "WI": "Wisconsin",
+    "WY": "Wyoming",
+}
+
+
+def _normalize_state(value: str | None) -> str:
+    """Return the AWS-accepted full state name for a HubSpot state value.
+
+    Accepts the standard 2-letter postal abbreviation (most HubSpot company
+    records use this) and returns the matching full name. Unknown values
+    pass through unchanged so a real full name like "California" still
+    works, and AWS's enum check is the final gate.
+    """
+    if not value:
+        return "Dist. of Columbia"
+    upper = value.strip().upper()
+    return _STATE_ABBR_TO_FULL.get(upper, value)
+
 
 class ACEMappingError(ValueError):
     """Raised when a HubSpot deal cannot be mapped to a valid ACE payload."""
@@ -64,14 +154,33 @@ def _get(deal: dict[str, Any], key: str) -> Any:
 
 
 def _customer_block(deal: dict[str, Any]) -> dict[str, Any]:
-    """Build the Customer block from agency / industry properties."""
-    company_name = _get(deal, "govwin_agency") or _get(deal, "dealname") or "Unknown Federal Agency"
+    """Build the Customer.Account block from agency / industry properties.
+
+    Sandbox business validation requires WebsiteUrl, Address.PostalCode,
+    and Address.StateOrRegion in addition to CompanyName. Production may
+    require more. We pull from HubSpot company-association fields when
+    available and fall back to GovWin agency defaults.
+
+    CountryCode lives under Customer.Account.Address (not flat on Account)
+    per the AWS Partner Central Selling API shape.
+    """
+    company_name = (
+        _get(deal, "govwin_agency") or _get(deal, "dealname") or "Unknown Federal Agency"
+    )
     industry = _get(deal, "govwin_industry") or "Government"
+    website = _get(deal, "govwin_entity_url") or _get(deal, "website") or "https://www.usa.gov"
+    postal_code = _get(deal, "zip") or _get(deal, "govwin_customer_postal_code") or "20001"
+    state = _normalize_state(_get(deal, "state") or _get(deal, "govwin_customer_state"))
     block: dict[str, Any] = {
         "Account": {
             "CompanyName": company_name,
             "Industry": industry,
-            "CountryCode": "US",
+            "WebsiteUrl": website,
+            "Address": {
+                "CountryCode": "US",
+                "PostalCode": postal_code,
+                "StateOrRegion": state,
+            },
         }
     }
     return block
@@ -98,8 +207,19 @@ def _project_block(deal: dict[str, Any]) -> dict[str, Any]:
         "DeliveryModels": delivery_models,
     }
     if description:
-        project["CustomerUseCase"] = description[:1500]
+        # CustomerBusinessProblem is free text; CustomerUseCase is an
+        # AWS-published enum (different from a free-text description).
         project["CustomerBusinessProblem"] = description[:1500]
+
+    # Resolve CustomerUseCase from a HubSpot custom property override or the
+    # default ("Migration / Database Migration"). Reject deals that override
+    # to a value not in the published enum so AWS does not reject them later.
+    use_case = _get(deal, "govwin_ace_use_case") or DEFAULT_CUSTOMER_USE_CASE
+    if use_case not in ALLOWED_CUSTOMER_USE_CASES:
+        raise ACEMappingError(
+            "Invalid CustomerUseCase: value not in the AWS-published enum"
+        )
+    project["CustomerUseCase"] = use_case
 
     amount = _get(deal, "amount")
     if amount:
