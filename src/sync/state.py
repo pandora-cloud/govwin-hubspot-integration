@@ -266,6 +266,16 @@ class SyncStateManager:
             ExpressionAttributeValues=values,
         )
 
+        # Maintain reverse-lookup records so find_govwin_by_invitation_id
+        # and find_govwin_by_hubspot_deal_id can use O(1) GetItem instead
+        # of an expensive table Scan.
+        if ace_engagement_invitation_id:
+            self._put_reverse_index(
+                f"INV#{ace_engagement_invitation_id}", govwin_id
+            )
+        if hubspot_deal_id:
+            self._put_reverse_index(f"DEAL#{hubspot_deal_id}", govwin_id)
+
     # Back-compat alias: callers that meant to overwrite still get merge
     # semantics. New code should use ``update_ace_mapping`` directly.
     set_ace_mapping = update_ace_mapping
@@ -328,55 +338,48 @@ class SyncStateManager:
     def find_govwin_by_invitation_id(self, invitation_id: str) -> str | None:
         """Locate the GovWin id whose ACE mapping holds this engagement invitation.
 
-        v1 implementation: scans the entity-mappings table filtering on the
-        ACE# pk prefix and the matching invitation field. At Pandora's scale
-        (~hundreds of mappings) this is acceptable; a GSI on
-        ``ace_engagement_invitation_id`` is the obvious upgrade if volume
-        grows.
+        Uses an O(1) GetItem against a reverse-index record written by
+        ``update_ace_mapping`` whenever ``ace_engagement_invitation_id`` is
+        set. The reverse record's pk is ``INV#<invitation_id>`` and its
+        body carries ``govwin_id``.
         """
         try:
-            response = self._mappings_table.scan(
-                FilterExpression="begins_with(pk, :pkprefix) "
-                "AND ace_engagement_invitation_id = :inv",
-                ExpressionAttributeValues={
-                    ":pkprefix": "ACE#",
-                    ":inv": invitation_id,
-                },
-                ProjectionExpression="pk",
+            response = self._mappings_table.get_item(
+                Key={"pk": f"INV#{invitation_id}", "sk": "REVERSE"}
             )
         except ClientError:
-            logger.exception("scan for invitation %s failed", invitation_id)
+            logger.exception("get reverse-index for invitation %s failed", invitation_id)
             return None
-        items = response.get("Items") or []
-        if not items:
-            return None
-        pk = items[0].get("pk", "")
-        if not isinstance(pk, str) or not pk.startswith("ACE#"):
-            return None
-        return pk[len("ACE#"):]
+        item = response.get("Item")
+        return _as_str(item.get("govwin_id")) if item else None
 
     def find_govwin_by_hubspot_deal_id(self, hubspot_deal_id: str) -> str | None:
-        """Locate the GovWin id whose ACE mapping points at this HubSpot deal."""
+        """Locate the GovWin id whose ACE mapping points at this HubSpot deal.
+
+        O(1) GetItem against a reverse-index record (pk
+        ``DEAL#<hubspot_deal_id>``) written by ``update_ace_mapping``.
+        """
         try:
-            response = self._mappings_table.scan(
-                FilterExpression="begins_with(pk, :pkprefix) "
-                "AND hubspot_deal_id = :did",
-                ExpressionAttributeValues={
-                    ":pkprefix": "ACE#",
-                    ":did": hubspot_deal_id,
-                },
-                ProjectionExpression="pk",
+            response = self._mappings_table.get_item(
+                Key={"pk": f"DEAL#{hubspot_deal_id}", "sk": "REVERSE"}
             )
         except ClientError:
-            logger.exception("scan for hubspot deal %s failed", hubspot_deal_id)
+            logger.exception("get reverse-index for hubspot deal %s failed", hubspot_deal_id)
             return None
-        items = response.get("Items") or []
-        if not items:
-            return None
-        pk = items[0].get("pk", "")
-        if not isinstance(pk, str) or not pk.startswith("ACE#"):
-            return None
-        return pk[len("ACE#"):]
+        item = response.get("Item")
+        return _as_str(item.get("govwin_id")) if item else None
+
+    def _put_reverse_index(self, pk: str, govwin_id: str) -> None:
+        """Write a reverse-lookup record. Uses the same TTL as the forward record."""
+        self._mappings_table.put_item(
+            Item={
+                "pk": pk,
+                "sk": "REVERSE",
+                "govwin_id": govwin_id,
+                "updated_at": datetime.now(UTC).isoformat(),
+                "ttl": int(time.time()) + 365 * 86400,
+            }
+        )
 
     def is_event_seen(self, event_id: str) -> bool:
         """Return True if we have already processed this EventBridge event id."""

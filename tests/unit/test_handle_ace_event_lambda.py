@@ -99,9 +99,11 @@ def test_opportunity_updated_skips_when_no_partner_id(state_mock, ace_mock, hubs
 def test_opportunity_updated_skips_when_review_status_unmapped(
     state_mock, ace_mock, hubspot_mock
 ) -> None:
+    """ReviewStatus 'Pending Submission' is the initial state after Create
+    and is intentionally not mapped to a HubSpot stage transition."""
     ace_mock.get_opportunity.return_value = {
         "PartnerOpportunityIdentifier": "OPP1",
-        "LifeCycle": {"ReviewStatus": "In Progress"},
+        "LifeCycle": {"ReviewStatus": "Pending Submission"},
     }
     with patch.object(handle_ace_event, "SyncStateManager", return_value=state_mock), \
          patch.object(handle_ace_event, "ACEClient", return_value=ace_mock), \
@@ -109,6 +111,39 @@ def test_opportunity_updated_skips_when_review_status_unmapped(
         result = handle_ace_event.handler(_opportunity_event(), context=None)
     assert result["status"] == "skipped"
     hubspot_mock.update_deal.assert_not_called()
+
+
+def test_opportunity_updated_routes_submitted_to_aws(
+    state_mock, ace_mock, hubspot_mock
+) -> None:
+    """Submitted is the AWS-side status right after StartEngagement; should
+    route to the 'Submitted to AWS' HubSpot stage label."""
+    ace_mock.get_opportunity.return_value = {
+        "PartnerOpportunityIdentifier": "OPP1",
+        "LifeCycle": {"ReviewStatus": "Submitted"},
+    }
+    with patch.object(handle_ace_event, "SyncStateManager", return_value=state_mock), \
+         patch.object(handle_ace_event, "ACEClient", return_value=ace_mock), \
+         patch.object(handle_ace_event, "HubSpotClient", return_value=hubspot_mock):
+        result = handle_ace_event.handler(_opportunity_event(), context=None)
+    assert result["status"] == "updated"
+    assert result["stage"] == "Submitted to AWS"
+
+
+def test_opportunity_updated_routes_in_review_lowercase(
+    state_mock, ace_mock, hubspot_mock
+) -> None:
+    """boto3 enum uses 'In review' (lowercase 'r'); confirm key matches."""
+    ace_mock.get_opportunity.return_value = {
+        "PartnerOpportunityIdentifier": "OPP1",
+        "LifeCycle": {"ReviewStatus": "In review"},
+    }
+    with patch.object(handle_ace_event, "SyncStateManager", return_value=state_mock), \
+         patch.object(handle_ace_event, "ACEClient", return_value=ace_mock), \
+         patch.object(handle_ace_event, "HubSpotClient", return_value=hubspot_mock):
+        result = handle_ace_event.handler(_opportunity_event(), context=None)
+    assert result["status"] == "updated"
+    assert result["stage"] == "Under AWS Review"
 
 
 def test_invitation_accepted_updates_stage(state_mock, ace_mock, hubspot_mock) -> None:
