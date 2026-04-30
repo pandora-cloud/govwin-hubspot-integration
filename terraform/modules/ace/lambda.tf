@@ -21,7 +21,7 @@ locals {
 
 resource "aws_lambda_function" "hubspot_webhook_receiver" {
   function_name                  = "${var.name_prefix}-hubspot-webhook-receiver"
-  role                           = var.lambda_role_arn
+  role                           = aws_iam_role.webhook_receiver.arn
   handler                        = "src.lambdas.hubspot_webhook_receiver.handler"
   runtime                        = "python3.12"
   architectures                  = ["arm64"]

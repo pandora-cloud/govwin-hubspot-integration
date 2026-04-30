@@ -28,3 +28,16 @@ lint:
   script:
     - ruff check src/ tests/
   allow_failure: false
+
+supply-chain-audit:
+  stage: security
+  image: python:3.12-slim
+  before_script:
+    - pip install --quiet pip-audit uv
+  script:
+    # Verify the committed requirements.lock matches uv.lock; otherwise the
+    # audit could pass against a stale snapshot of the dependency graph.
+    - uv export --format=requirements-txt --no-dev --no-emit-project 2>/dev/null > /tmp/requirements.lock.expected
+    - diff -q requirements.lock /tmp/requirements.lock.expected || (echo "requirements.lock out of sync; run make lock"; diff requirements.lock /tmp/requirements.lock.expected | head -40; exit 1)
+    - pip-audit -r requirements.lock --disable-pip
+  allow_failure: false

@@ -37,9 +37,20 @@ destroy: ## Destroy all Terraform-managed infrastructure
 package: ## Package Lambda functions
 	@echo "Cleaning __pycache__ before packaging..."
 	find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
-	@echo "Packaging Lambda functions..."
-	pip install --platform manylinux2014_aarch64 --only-binary=:all: --implementation cp --python-version 3.12 -r requirements.txt -t package/python/
+	@echo "Packaging Lambda functions from hashed lockfile..."
+	@if [ ! -f requirements.lock ]; then \
+		echo "requirements.lock missing; run: make lock"; exit 1; \
+	fi
+	pip install --platform manylinux2014_aarch64 --only-binary=:all: --implementation cp --python-version 3.12 --require-hashes -r requirements.lock -t package/python/
 	cd package && zip -r ../lambda-layer.zip python/
+
+lock: ## Regenerate requirements.lock with hashes from uv.lock
+	uv export --format=requirements-txt --no-dev --no-emit-project 2>/dev/null > requirements.lock
+	@echo "requirements.lock regenerated. Commit it together with the requirements.txt change."
+
+audit: ## Audit dependencies for known CVEs
+	@command -v pip-audit >/dev/null 2>&1 || uv tool install pip-audit
+	pip-audit -r requirements.lock --disable-pip
 
 clean: ## Remove build artifacts
 	rm -rf __pycache__ .pytest_cache .mypy_cache .ruff_cache

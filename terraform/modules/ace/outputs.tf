@@ -50,3 +50,21 @@ output "handle_ace_event_arn" {
 output "setup_hubspot_webhooks_arn" {
   value = aws_lambda_function.setup_hubspot_webhooks.arn
 }
+
+output "lambda_function_names" {
+  value = [
+    aws_lambda_function.hubspot_webhook_receiver.function_name,
+    aws_lambda_function.submit_to_ace.function_name,
+    aws_lambda_function.update_in_ace.function_name,
+    aws_lambda_function.handle_ace_event.function_name,
+    aws_lambda_function.setup_hubspot_webhooks.function_name,
+  ]
+}
+
+output "submit_dlq_name" {
+  value = aws_sqs_queue.submit_dlq.name
+}
+
+output "update_dlq_name" {
+  value = aws_sqs_queue.update_dlq.name
+}
