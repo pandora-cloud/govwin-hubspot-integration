@@ -1,4 +1,15 @@
-"""Token bucket rate limiter for GovWin API (4,000 calls/hour rolling window)."""
+"""Token bucket rate limiter for GovWin API (4,000 calls/hour rolling window).
+
+The limiter is **process-local**. State is held in instance memory and is
+NOT shared across Lambda invocations or across concurrent workers. This
+holds today because the GovWin sync runs with maxConcurrency=2 and the
+4,000-calls-per-hour budget divides cleanly (~2,000 each). If concurrency
+ever scales beyond the available organization-level budget, replace this
+with a DynamoDB-backed token bucket (atomic conditional updates against a
+shared counter) or AWS Lambda reserved-concurrency throttling. Documented
+here because it's an assumption that will silently break under future
+scale.
+"""
 
 from __future__ import annotations
 

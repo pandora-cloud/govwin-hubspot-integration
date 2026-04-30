@@ -21,6 +21,7 @@ import boto3
 from botocore.exceptions import ClientError
 
 from src.config import load_config
+from src.lambdas._webhook_routing import classify_property_change
 
 logger = logging.getLogger(__name__)
 logger.setLevel(os.environ.get("LOG_LEVEL", "INFO"))
@@ -116,31 +117,19 @@ def _required_target_url() -> str:
     return url
 
 
-_UPDATE_PROPERTIES: frozenset[str] = frozenset(
-    {"amount", "closedate", "dealname", "description"}
-)
-
-
 def _route_event(ev: Any) -> str:
     """Decide whether an event belongs on the submit queue or update queue.
 
-    Returns "submit" for dealstage transitions, "update" for content
-    property changes, or "drop" for events we do not act on.
+    Routing is keyed off ``_webhook_routing.classify_property_change`` so the
+    receiver and the deploy-time subscription registrar share the same
+    canonical property list. Unknown properties are dropped (logged) rather
+    than mis-routed.
     """
     if not isinstance(ev, dict):
         return "drop"
     if ev.get("subscriptionType") != "object.propertyChange":
         return "drop"
-    prop = ev.get("propertyName")
-    if prop == "dealstage":
-        return "submit"
-    if prop in _UPDATE_PROPERTIES:
-        return "update"
-    if isinstance(prop, str) and prop.startswith("govwin_ace_"):
-        # ACE manual fields (delivery model, partner need): treat as update
-        # so the submission picks up the latest values.
-        return "update"
-    return "drop"
+    return classify_property_change(ev.get("propertyName"))
 
 
 def _send_sqs_batches(queue_url: str, events: list[Any]) -> int:

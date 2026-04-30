@@ -89,10 +89,6 @@ variable "batch_size" {
   type    = number
   default = 10
 }
-variable "max_concurrency" {
-  type    = number
-  default = 2
-}
 variable "log_retention_days" {
   type    = number
   default = 30
@@ -150,11 +146,11 @@ data "aws_iam_policy_document" "lambda_permissions" {
     ]
   }
 
-  # Secrets Manager: PutSecretValue only on the OAuth-token cache, which is
-  # the only secret any Lambda writes back to (authenticate Lambda updates
-  # the cached access/refresh token after refresh). Splitting this out so
-  # govwin_secret_arn (long-lived credentials) and hubspot_secret_arn
-  # (Bearer token) are read-only from the Lambdas.
+  # Secrets Manager: PutSecretValue only on the OAuth-token cache. The
+  # GovWin auth helper writes the refreshed access/refresh token back so
+  # subsequent invocations can reuse them; the long-lived credentials in
+  # govwin_secret_arn and the HubSpot token in hubspot_secret_arn stay
+  # read-only from the Lambda role.
   statement {
     actions = [
       "secretsmanager:PutSecretValue",
@@ -174,6 +170,18 @@ data "aws_iam_policy_document" "lambda_permissions" {
   statement {
     actions   = ["sqs:SendMessage"]
     resources = [var.dlq_arn]
+  }
+
+  # X-Ray. Both actions are list-style and do not support resource-level
+  # filtering on the call; AWS requires "*". They only let the caller emit
+  # trace data attributed to its own role, so the wildcard is industry-
+  # standard for this pair.
+  statement {
+    actions = [
+      "xray:PutTraceSegments",
+      "xray:PutTelemetryRecords",
+    ]
+    resources = ["*"]
   }
 }
 
@@ -218,6 +226,9 @@ data "archive_file" "source" {
 }
 
 # --- Common Environment Variables ---
+#
+# Exposed to dependent modules (govwin_sync, ace) so every Lambda gets the
+# same DynamoDB/Secrets/GovWin discovery configuration without duplication.
 
 locals {
   common_env = {
@@ -235,101 +246,13 @@ locals {
     GOVWIN_MARKED_VERSION     = var.govwin_marked_version
     INITIAL_LOOKBACK_DAYS     = tostring(var.initial_lookback_days)
     BATCH_SIZE                = tostring(var.batch_size)
-    MAX_CONCURRENCY           = tostring(var.max_concurrency)
   }
 }
 
-# --- Lambda Functions ---
-
-resource "aws_lambda_function" "authenticate" {
-  function_name                  = "${var.name_prefix}-authenticate"
-  role                           = aws_iam_role.lambda.arn
-  handler                        = "src.lambdas.authenticate.handler"
-  runtime                        = "python3.12"
-  architectures                  = ["arm64"]
-  timeout                        = 30
-  memory_size                    = 128
-  reserved_concurrent_executions = 1
-  filename                       = data.archive_file.source.output_path
-  source_code_hash               = data.archive_file.source.output_base64sha256
-  layers                         = [aws_lambda_layer_version.deps.arn]
-
-  environment {
-    variables = local.common_env
-  }
-}
-
-resource "aws_lambda_function" "discover_changes" {
-  function_name                  = "${var.name_prefix}-discover-changes"
-  role                           = aws_iam_role.lambda.arn
-  handler                        = "src.lambdas.discover_changes.handler"
-  runtime                        = "python3.12"
-  architectures                  = ["arm64"]
-  timeout                        = 300
-  memory_size                    = 256
-  reserved_concurrent_executions = 1
-  filename                       = data.archive_file.source.output_path
-  source_code_hash               = data.archive_file.source.output_base64sha256
-  layers                         = [aws_lambda_layer_version.deps.arn]
-
-  environment {
-    variables = local.common_env
-  }
-}
-
-resource "aws_lambda_function" "fetch_opp_details" {
-  function_name                  = "${var.name_prefix}-fetch-opp-details"
-  role                           = aws_iam_role.lambda.arn
-  handler                        = "src.lambdas.fetch_opp_details.handler"
-  runtime                        = "python3.12"
-  architectures                  = ["arm64"]
-  timeout                        = 300
-  memory_size                    = 256
-  reserved_concurrent_executions = 5
-  filename                       = data.archive_file.source.output_path
-  source_code_hash               = data.archive_file.source.output_base64sha256
-  layers                         = [aws_lambda_layer_version.deps.arn]
-
-  environment {
-    variables = local.common_env
-  }
-}
-
-resource "aws_lambda_function" "sync_to_hubspot" {
-  function_name                  = "${var.name_prefix}-sync-to-hubspot"
-  role                           = aws_iam_role.lambda.arn
-  handler                        = "src.lambdas.sync_to_hubspot.handler"
-  runtime                        = "python3.12"
-  architectures                  = ["arm64"]
-  timeout                        = 300
-  memory_size                    = 256
-  reserved_concurrent_executions = 5
-  filename                       = data.archive_file.source.output_path
-  source_code_hash               = data.archive_file.source.output_base64sha256
-  layers                         = [aws_lambda_layer_version.deps.arn]
-
-  environment {
-    variables = local.common_env
-  }
-}
-
-resource "aws_lambda_function" "update_sync_state" {
-  function_name                  = "${var.name_prefix}-update-sync-state"
-  role                           = aws_iam_role.lambda.arn
-  handler                        = "src.lambdas.update_sync_state.handler"
-  runtime                        = "python3.12"
-  architectures                  = ["arm64"]
-  timeout                        = 30
-  memory_size                    = 128
-  reserved_concurrent_executions = 1
-  filename                       = data.archive_file.source.output_path
-  source_code_hash               = data.archive_file.source.output_base64sha256
-  layers                         = [aws_lambda_layer_version.deps.arn]
-
-  environment {
-    variables = local.common_env
-  }
-}
+# --- One-time setup Lambda ---
+#
+# Creates HubSpot pipeline + custom properties on first deploy. Invoked by
+# Terraform (terraform_data resource below) after every source-code change.
 
 resource "aws_lambda_function" "setup_hubspot" {
   function_name                  = "${var.name_prefix}-setup-hubspot"
@@ -344,43 +267,17 @@ resource "aws_lambda_function" "setup_hubspot" {
   source_code_hash               = data.archive_file.source.output_base64sha256
   layers                         = [aws_lambda_layer_version.deps.arn]
 
-  environment {
-    variables = local.common_env
+  tracing_config {
+    mode = "Active"
   }
-}
-
-resource "aws_lambda_function" "handle_error" {
-  function_name                  = "${var.name_prefix}-handle-error"
-  role                           = aws_iam_role.lambda.arn
-  handler                        = "src.lambdas.handle_error.handler"
-  runtime                        = "python3.12"
-  architectures                  = ["arm64"]
-  timeout                        = 30
-  memory_size                    = 128
-  reserved_concurrent_executions = 2
-  filename                       = data.archive_file.source.output_path
-  source_code_hash               = data.archive_file.source.output_base64sha256
-  layers                         = [aws_lambda_layer_version.deps.arn]
 
   environment {
     variables = local.common_env
   }
 }
 
-# --- CloudWatch Log Groups ---
-
-resource "aws_cloudwatch_log_group" "lambda_logs" {
-  for_each = toset([
-    aws_lambda_function.authenticate.function_name,
-    aws_lambda_function.discover_changes.function_name,
-    aws_lambda_function.fetch_opp_details.function_name,
-    aws_lambda_function.sync_to_hubspot.function_name,
-    aws_lambda_function.update_sync_state.function_name,
-    aws_lambda_function.setup_hubspot.function_name,
-    aws_lambda_function.handle_error.function_name,
-  ])
-
-  name              = "/aws/lambda/${each.value}"
+resource "aws_cloudwatch_log_group" "setup_hubspot_logs" {
+  name              = "/aws/lambda/${aws_lambda_function.setup_hubspot.function_name}"
   retention_in_days = var.log_retention_days
 }
 
@@ -414,46 +311,11 @@ resource "terraform_data" "setup_hubspot" {
 
 # --- Outputs ---
 
-output "authenticate_arn" {
-  value = aws_lambda_function.authenticate.arn
-}
-
-output "discover_changes_arn" {
-  value = aws_lambda_function.discover_changes.arn
-}
-
-output "fetch_opp_details_arn" {
-  value = aws_lambda_function.fetch_opp_details.arn
-}
-
-output "sync_to_hubspot_arn" {
-  value = aws_lambda_function.sync_to_hubspot.arn
-}
-
-output "update_sync_state_arn" {
-  value = aws_lambda_function.update_sync_state.arn
-}
-
 output "setup_hubspot_arn" {
   value = aws_lambda_function.setup_hubspot.arn
 }
 
-output "handle_error_arn" {
-  value = aws_lambda_function.handle_error.arn
-}
-
-output "all_lambda_arns" {
-  value = [
-    aws_lambda_function.authenticate.arn,
-    aws_lambda_function.discover_changes.arn,
-    aws_lambda_function.fetch_opp_details.arn,
-    aws_lambda_function.sync_to_hubspot.arn,
-    aws_lambda_function.update_sync_state.arn,
-    aws_lambda_function.handle_error.arn,
-  ]
-}
-
-# Exposed so the ACE module can reuse the same role / layer / zip.
+# Exposed so the govwin_sync and ace modules can reuse the same role / layer / zip.
 
 output "lambda_role_arn" {
   value = aws_iam_role.lambda.arn
@@ -473,4 +335,8 @@ output "lambda_source_zip" {
 
 output "lambda_source_hash" {
   value = data.archive_file.source.output_base64sha256
+}
+
+output "common_env" {
+  value = local.common_env
 }
