@@ -304,6 +304,10 @@ class ACEClient:
             "Marketing",
             "SoftwareRevenue",
             "LifeCycle",
+            # PartnerOpportunityIdentifier is the partner-side cross-reference
+            # (we use it for the GovWin opp id). AWS's UpdateOpportunity has
+            # PUT semantics, so omitting it CLEARS it. Always echo back.
+            "PartnerOpportunityIdentifier",
         }
         return {k: v for k, v in current.items() if k in allowed}
 

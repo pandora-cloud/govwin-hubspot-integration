@@ -25,27 +25,29 @@ logger = logging.getLogger(__name__)
 logger.setLevel(os.environ.get("LOG_LEVEL", "INFO"))
 
 
+# AWS review status -> HubSpot stage label. The label values are looked up
+# at runtime via get_stage_id_by_label so deployments can rename or
+# re-create stages without touching code; only the labels matter.
 _DEALSTAGE_BY_AWS_REVIEW: dict[str, str] = {
-    "Approved": "approved_by_aws",
-    "Action Required": "action_required",
-    "Rejected": "closedlost",
-    "Expired": "closedlost",
+    "Approved": "Approved by AWS",
+    "Action Required": "Action Required",
+    "Rejected": "Closed Lost",
+    "Expired": "Closed Lost",
 }
 
 
 def _update_hubspot_stage(
-    hubspot: HubSpotClient, deal_id: str, target_stage: str
+    hubspot: HubSpotClient, deal_id: str, target_label: str
 ) -> bool:
     """Resolve a stage label to its pipeline ID and patch the deal.
 
-    Returns False if the stage label is not present in the configured
-    pipeline so the caller can decide whether to skip vs warn.
+    Returns False if the label is not present in the configured pipeline.
     """
-    stage_id = hubspot.get_stage_id(target_stage)
+    stage_id = hubspot.get_stage_id_by_label(target_label)
     if not stage_id:
         logger.warning(
             "handle_ace_event: stage label %r not in pipeline; skipping update of %s",
-            target_stage,
+            target_label,
             deal_id,
         )
         return False
@@ -125,9 +127,9 @@ def _handle_invitation_event(
         return {"status": "logged", "invitation_id": invitation_id}
 
     if detail_type == "Engagement Invitation Accepted":
-        target_stage = "approved_by_aws"
+        target_stage = "Approved by AWS"
     elif detail_type in {"Engagement Invitation Rejected", "Engagement Invitation Expired"}:
-        target_stage = "closedlost"
+        target_stage = "Closed Lost"
     else:
         return {"status": "skipped", "reason": f"unhandled detail-type {detail_type}"}
 

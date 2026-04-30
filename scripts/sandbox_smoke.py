@@ -185,6 +185,7 @@ def _scrub_for_update(current: dict[str, Any]) -> dict[str, Any]:
         "Marketing",
         "SoftwareRevenue",
         "LifeCycle",
+        "PartnerOpportunityIdentifier",
     }
     return {k: v for k, v in current.items() if k in allowed}
 

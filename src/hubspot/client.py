@@ -241,6 +241,18 @@ class HubSpotClient:
         for stage in pipeline_data.get("stages", []):
             self._stage_label_to_id[stage["label"]] = stage["id"]
 
+    def get_stage_id_by_label(self, label: str) -> str | None:
+        """Return the HubSpot pipeline stage ID for an exact stage label.
+
+        Falls back to None when the label does not exist in the configured
+        pipeline. Used by the v2 ACE flow to translate AWS review-status
+        labels (e.g. "Approved by AWS") to the HubSpot internal stage id
+        we write to ``dealstage``.
+        """
+        if not self._stage_label_to_id:
+            self.ensure_pipeline()
+        return self._stage_label_to_id.get(label)
+
     def get_stage_id(self, govwin_status: str) -> str | None:
         """Map a GovWin status to a HubSpot pipeline stage ID.
 
