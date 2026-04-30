@@ -212,7 +212,15 @@ variable "ace_default_visibility" {
 }
 
 variable "ace_trigger_stages" {
-  description = "Comma-separated HubSpot deal stage internal IDs that trigger ACE submission"
+  description = <<-EOT
+    Comma-separated HubSpot deal stage internal IDs (numeric, HubSpot-assigned)
+    that trigger ACE submission. Production deployments MUST override this with
+    the numeric stage id from the HubSpot pipeline editor (e.g. "3590200042"
+    for a "Submit to AWS" stage in the Government pipeline). The default below
+    uses label-style placeholders so a first-deploy plan/apply succeeds before
+    the operator has created the stages; the override step is documented in
+    docs/ace-integration.md and docs/phase4-runbook.md.
+  EOT
   type        = string
   default     = "submit_to_aws,submitted_to_aws"
 }
