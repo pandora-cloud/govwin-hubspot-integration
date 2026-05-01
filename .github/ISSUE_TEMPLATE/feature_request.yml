@@ -1,0 +1,45 @@
+name: Feature request
+description: Suggest an enhancement or new capability.
+title: "[FEATURE] "
+labels: ["enhancement", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This project is scoped to **federal AWS partners** running the GovWin -> HubSpot -> AWS Partner Central pipeline. Adapters for other CRMs (Salesforce, Pipedrive, Dynamics) and ports to other languages will not be merged. See [CONTRIBUTING.md](../CONTRIBUTING.md#what-we-will-likely-not-merge).
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem statement
+      description: What workflow is currently painful, missing, or impossible?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: Be concrete - which Lambdas, which HubSpot fields, which AWS Partner Central API calls would change.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Why is your proposed approach preferable?
+
+  - type: textarea
+    id: relevance
+    attributes:
+      label: Federal AWS partner relevance
+      description: Briefly describe how this serves the project's audience.
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Links to AWS docs, HubSpot docs, GovWin behavior, screenshots, related issues.

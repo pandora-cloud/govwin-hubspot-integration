@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/pandora-cloud-llc/govwin-hubspot-integration/security/advisories/new
+    about: Use GitHub's private security advisories for credential disclosure, vulnerabilities, or anything that should not be public. See SECURITY.md for the full disclosure process.
+  - name: Question / Help / How-to
+    url: https://github.com/pandora-cloud-llc/govwin-hubspot-integration/discussions
+    about: Use GitHub Discussions for usage questions, deployment help, and community support. Issues are reserved for confirmed bugs and feature requests.
+  - name: Paid support / professional services
+    url: mailto:pc@pandoracloud.net
+    about: For prioritized feature work, deployment assistance, federal compliance review, or production incident support, contact Pandora Cloud directly.

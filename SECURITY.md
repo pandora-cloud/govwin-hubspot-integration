@@ -12,17 +12,30 @@ Pandora Cloud LLC takes security seriously. This project handles credentials for
 
 ## Reporting a vulnerability
 
-**Do not open a public GitHub issue for security reports.**
+**Do not open a public GitHub issue for security reports.** Use one of these channels instead, in order of preference:
 
-Email <pc@pandoracloud.net> with:
+1. **GitHub private security advisory** (preferred). [Open one here](https://github.com/pandora-cloud-llc/govwin-hubspot-integration/security/advisories/new). This routes to the maintainers without becoming public.
+2. **Encrypted email** to <pc@pandoracloud.net>. Encrypt with our PGP public key:
+   - Fingerprint: `<TO BE FILLED IN AFTER FIRST KEY GENERATION>`
+   - Public key: `.well-known/security/pandora-cloud-public.asc` in this repo, also published to `keys.openpgp.org`.
+3. **Plain-text email** to <pc@pandoracloud.net> if encryption is impractical. We will accept the report but will respond using PGP if your message did not include your own public key.
+
+Include in your report:
 
 - A description of the issue and its impact
-- Reproduction steps or a proof-of-concept (please do not test against systems you don't own)
+- Reproduction steps or a proof-of-concept (do not test against systems you don't own)
 - Your suggested mitigation if you have one
 
-We aim to acknowledge within three business days and provide an initial assessment within seven. Severity-1 issues (active exploitation, credential exposure, data loss) are prioritized over feature work.
+### Response SLAs
 
-If you do not receive a response within seven business days, escalate by emailing <isi@pandoracloud.net> directly.
+| Severity | Definition | First response | Fix or mitigation |
+|---|---|---|---|
+| Critical | Active exploitation; credential or PII disclosure; data loss; ACE submission integrity | 24 hours | 7 calendar days |
+| High | Authentication / signature-validation bypass; privilege escalation in IAM; webhook replay defeat | 3 business days | 14 calendar days |
+| Medium | Missing rate-limit defenses; secret-handling weaknesses that don't disclose; logging-induced PII leak | 5 business days | 30 calendar days |
+| Low | Hardening recommendations; defense-in-depth | 7 business days | Best-effort, often via Renovate / Dependabot |
+
+If you do not receive a response within the first-response window, escalate by emailing <pc@pandoracloud.net> with `[ESCALATION]` in the subject.
 
 ## What we treat as in-scope
 

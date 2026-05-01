@@ -26,4 +26,6 @@ References #
 - [ ] No secrets, account IDs, or internal-only paths in committed code
 - [ ] No new paid dependencies
 - [ ] Commit message explains the *why*, not the *what*
-- [ ] If touching the ACE submission path, sandbox smoke matrix re-run (see `docs/testing.md`)
+- [ ] If touching the ACE submission path, sandbox smoke matrix re-run (see `docs/testing-in-your-account.md`)
+- [ ] If touching boto3 client construction, FIPS endpoint resolution still verifies via `PYTHONPATH=. .venv/bin/python scripts/verify_fips.py`
+- [ ] No `boto3.client(...)` direct calls added (use `src.aws_clients.make_client` so FIPS + region pinning stay enforced)

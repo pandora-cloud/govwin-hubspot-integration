@@ -1,0 +1,103 @@
+header:
+  schema-version: "1.0.0"
+  expiration-date: "2027-05-01T00:00:00.000Z"
+  last-updated: "2026-05-01"
+  last-reviewed: "2026-05-01"
+  project-url: https://github.com/pandora-cloud-llc/govwin-hubspot-integration
+  changelog: https://github.com/pandora-cloud-llc/govwin-hubspot-integration/blob/main/CHANGELOG.md
+  license: https://github.com/pandora-cloud-llc/govwin-hubspot-integration/blob/main/LICENSE
+
+project-lifecycle:
+  status: active
+  roadmap: https://github.com/pandora-cloud-llc/govwin-hubspot-integration/blob/main/ROADMAP.md
+  bug-fixes-only: false
+  core-maintainers:
+    - https://github.com/ilawson-pandora
+
+contribution-policy:
+  accepts-pull-requests: true
+  accepts-automated-pull-requests: true
+  contributing-policy: https://github.com/pandora-cloud-llc/govwin-hubspot-integration/blob/main/CONTRIBUTING.md
+  code-of-conduct: https://github.com/pandora-cloud-llc/govwin-hubspot-integration/blob/main/CODE_OF_CONDUCT.md
+
+documentation:
+  - https://github.com/pandora-cloud-llc/govwin-hubspot-integration/blob/main/README.md
+  - https://github.com/pandora-cloud-llc/govwin-hubspot-integration/blob/main/docs/architecture.md
+  - https://github.com/pandora-cloud-llc/govwin-hubspot-integration/blob/main/docs/deployment-guide.md
+
+distribution-points:
+  - https://github.com/pandora-cloud-llc/govwin-hubspot-integration
+
+security-artifacts:
+  threat-model:
+    threat-model-created: false
+    evidence-url: []
+  self-assessment:
+    self-assessment-created: false
+    evidence-url: []
+
+security-testing:
+  - tool-type: sca
+    tool-name: pip-audit
+    tool-version: latest
+    integration:
+      ad-hoc: false
+      ci: true
+      before-release: true
+    comment: Runs on every push and PR; fails CI on any CVE in transitive deps.
+  - tool-type: sast
+    tool-name: CodeQL
+    tool-version: latest
+    integration:
+      ad-hoc: false
+      ci: true
+      before-release: true
+  - tool-type: secret-scanner
+    tool-name: gitleaks
+    tool-version: latest
+    integration:
+      ad-hoc: false
+      ci: true
+      before-release: false
+  - tool-type: scorecard
+    tool-name: OpenSSF Scorecard
+    tool-version: v2.4.0
+    integration:
+      ad-hoc: false
+      ci: true
+      before-release: false
+
+security-assessments: []
+
+security-contacts:
+  - type: email
+    value: pc@pandoracloud.net
+    primary: true
+
+vulnerability-reporting:
+  accepts-vulnerability-reports: true
+  email-contact: pc@pandoracloud.net
+  security-policy: https://github.com/pandora-cloud-llc/govwin-hubspot-integration/blob/main/SECURITY.md
+  bug-bounty-available: false
+  in-scope:
+    - "code in src/, terraform/, hubspot-app/, scripts/"
+    - "supply chain (committed dependency lockfiles)"
+    - "deployment artifacts (Lambda code, Terraform modules)"
+  out-scope:
+    - "AWS infrastructure outside the deployer's account"
+    - "HubSpot or AWS Partner Central platform vulnerabilities (report to those vendors)"
+    - "Third-party Python packages (report upstream; we will track and update)"
+
+dependencies:
+  third-party-packages: true
+  dependencies-lists:
+    - https://github.com/pandora-cloud-llc/govwin-hubspot-integration/blob/main/requirements.lock
+  sbom:
+    - sbom-file: https://github.com/pandora-cloud-llc/govwin-hubspot-integration/releases/latest/download/sbom-python.cdx.json
+      sbom-format: CycloneDX
+      sbom-url: https://github.com/pandora-cloud-llc/govwin-hubspot-integration/releases
+  dependencies-lifecycle:
+    policy-url: https://github.com/pandora-cloud-llc/govwin-hubspot-integration/blob/main/SECURITY.md
+    comment: Renovate weekly; security patches auto-merged when available.
+  env-dependencies-policy:
+    policy-url: https://github.com/pandora-cloud-llc/govwin-hubspot-integration/blob/main/SECURITY.md
