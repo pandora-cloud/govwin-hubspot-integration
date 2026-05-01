@@ -42,6 +42,10 @@ def hubspot_mock() -> MagicMock:
     # Default: deal is active (not archived). Tests that need the
     # archived path override this on the fixture.
     hs.is_deal_archived.return_value = False
+    # Default: no existing HubSpot contact with the same email -- safe
+    # to upsert. Tests that exercise the existing-contact protection
+    # override this on the fixture.
+    hs.find_contact_by_email.return_value = None
     return hs
 
 
@@ -87,11 +91,12 @@ def test_opportunity_updated_with_approved_status(state_mock, ace_mock, hubspot_
     assert result["status"] == "updated"
     assert result["stage"] == "Approved by AWS"
     ace_mock.get_opportunity.assert_called_once_with("O1")
-    # Two update_deal calls now: write-back of cosell_id + status, then dealstage.
-    assert hubspot_mock.update_deal.call_count == 2
-    writeback = hubspot_mock.update_deal.call_args_list[0]
-    assert writeback.args[1]["govwin_aws_cosell_id"] == "O1"
-    assert writeback.args[1]["govwin_aws_cosell_status"] == "Approved"
+    # Unified PATCH: cosell_id + status + dealstage all sent in one call.
+    hubspot_mock.update_deal.assert_called_once()
+    body = hubspot_mock.update_deal.call_args.args[1]
+    assert body["govwin_aws_cosell_id"] == "O1"
+    assert body["govwin_aws_cosell_status"] == "Approved"
+    assert body["dealstage"] == "stage-id-123"
 
 
 def test_opportunity_updated_skips_when_no_partner_id(state_mock, ace_mock, hubspot_mock) -> None:
@@ -121,13 +126,12 @@ def test_opportunity_updated_skips_when_review_status_unmapped(
         result = handle_ace_event.handler(_opportunity_event(), context=None)
     assert result["status"] == "no-op"
     assert "Pending Submission" in result["reason"]
-    # The write-back path still runs (and surfaces 'Pending Submission' on
-    # the deal) even though no stage change happens.
+    # Unified write-back: status is set on the deal even though no stage
+    # change happens. Single PATCH carries cosell_id + status only.
     hubspot_mock.update_deal.assert_called_once()
-    assert (
-        hubspot_mock.update_deal.call_args.args[1]["govwin_aws_cosell_status"]
-        == "Pending Submission"
-    )
+    body = hubspot_mock.update_deal.call_args.args[1]
+    assert body["govwin_aws_cosell_status"] == "Pending Submission"
+    assert "dealstage" not in body
 
 
 def test_opportunity_updated_routes_submitted_to_aws(
@@ -251,9 +255,9 @@ def test_stage_label_missing_in_pipeline_warns_and_skips(
          patch.object(handle_ace_event, "HubSpotClient", return_value=hubspot_mock):
         result = handle_ace_event.handler(_opportunity_event(), context=None)
     assert result["status"] == "skipped"
-    # Write-back still runs even when the stage label can't be resolved.
-    # update_deal called once for the write-back, never for dealstage.
-    assert hubspot_mock.update_deal.call_count == 1
+    # Unified write-back: when the stage label doesn't resolve, dealstage
+    # is omitted from the PATCH but cosell_id + status still update.
+    hubspot_mock.update_deal.assert_called_once()
     assert "dealstage" not in hubspot_mock.update_deal.call_args.args[1]
 
 
@@ -303,3 +307,107 @@ def test_archived_deal_skipped_for_invitation_events_too(
     assert result["status"] == "skipped"
     assert "archived" in result["reason"]
     hubspot_mock.update_deal.assert_not_called()
+
+
+def test_hyperscaler_contact_rejects_non_aws_email_domain(
+    state_mock, ace_mock, hubspot_mock, caplog
+) -> None:
+    """CRITICAL fix: an EngagementInvitation event carrying an email
+    outside the AWS allowlist must NOT trigger upsert_contact. Otherwise
+    AWS-supplied data could clobber a real customer-side contact in
+    HubSpot."""
+    invitation = {
+        "id": "inv-1",
+        "engagementId": "eng-1",
+        "participantType": "Sender",
+        "invitationContacts": [
+            {"email": "isi@pandoracloud.net", "firstName": "Isi", "lastName": "L"},
+            {"email": "rogue@evil.example", "firstName": "X", "lastName": "Y"},
+        ],
+    }
+    state_mock.find_govwin_by_invitation_id.return_value = "OPP1"
+    state_mock.get_ace_mapping.return_value = {"hubspot_deal_id": "deal-1"}
+    hubspot_mock.get_associated_company.return_value = {"id": "co-1"}
+    event = {
+        "id": "ev-inv",
+        "detail-type": "Engagement Invitation Created",
+        "source": "aws.partnercentral-selling",
+        "detail": {
+            "catalog": "AWS",
+            "engagementInvitation": invitation,
+        },
+    }
+    with patch.object(handle_ace_event, "SyncStateManager", return_value=state_mock), \
+         patch.object(handle_ace_event, "ACEClient", return_value=ace_mock), \
+         patch.object(handle_ace_event, "HubSpotClient", return_value=hubspot_mock):
+        with caplog.at_level("WARNING"):
+            handle_ace_event.handler(event, context=None)
+    # Neither non-AWS email triggered upsert.
+    hubspot_mock.upsert_contact.assert_not_called()
+    # Both rejections logged at WARNING level for audit visibility.
+    rejection_msgs = [r.message for r in caplog.records if "domain not in allowlist" in r.message]
+    assert len(rejection_msgs) == 2
+
+
+def test_hyperscaler_contact_skips_overwrite_of_real_existing_contact(
+    state_mock, ace_mock, hubspot_mock
+) -> None:
+    """Even an aws.com / amazon.com email is NOT upserted onto an
+    existing HubSpot contact that wasn't previously created by this
+    Lambda. Only the deal/company association is added."""
+    invitation = {
+        "id": "inv-2", "engagementId": "eng-2", "participantType": "Sender",
+        "invitationContacts": [{
+            "email": "shared@amazon.com",
+            "firstName": "AWS", "lastName": "Person",
+        }],
+    }
+    state_mock.find_govwin_by_invitation_id.return_value = "OPP1"
+    state_mock.get_ace_mapping.return_value = {"hubspot_deal_id": "deal-1"}
+    hubspot_mock.get_associated_company.return_value = {"id": "co-1"}
+    # Existing HubSpot contact NOT marked as hyperscaler.
+    hubspot_mock.find_contact_by_email.return_value = {
+        "id": "contact-99",
+        "properties": {"email": "shared@amazon.com", "hs_lead_status": "OPEN"},
+    }
+    event = {
+        "id": "ev-inv-2",
+        "detail-type": "Engagement Invitation Created",
+        "source": "aws.partnercentral-selling",
+        "detail": {"catalog": "AWS", "engagementInvitation": invitation},
+    }
+    with patch.object(handle_ace_event, "SyncStateManager", return_value=state_mock), \
+         patch.object(handle_ace_event, "ACEClient", return_value=ace_mock), \
+         patch.object(handle_ace_event, "HubSpotClient", return_value=hubspot_mock):
+        handle_ace_event.handler(event, context=None)
+    # No upsert: real contact protected.
+    hubspot_mock.upsert_contact.assert_not_called()
+    # But association still made -- visibility for the AWS reviewer linkage.
+    assert hubspot_mock.associate_objects.call_count >= 1
+
+
+def test_hyperscaler_contact_email_masked_in_logs(
+    state_mock, ace_mock, hubspot_mock, caplog
+) -> None:
+    invitation = {
+        "id": "inv-3", "engagementId": "eng-3", "participantType": "Sender",
+        "invitationContacts": [{"email": "evil@evil.example", "firstName": "X", "lastName": "Y"}],
+    }
+    state_mock.find_govwin_by_invitation_id.return_value = "OPP1"
+    state_mock.get_ace_mapping.return_value = {"hubspot_deal_id": "deal-1"}
+    hubspot_mock.get_associated_company.return_value = None
+    event = {
+        "id": "ev-inv-3",
+        "detail-type": "Engagement Invitation Created",
+        "source": "aws.partnercentral-selling",
+        "detail": {"catalog": "AWS", "engagementInvitation": invitation},
+    }
+    with patch.object(handle_ace_event, "SyncStateManager", return_value=state_mock), \
+         patch.object(handle_ace_event, "ACEClient", return_value=ace_mock), \
+         patch.object(handle_ace_event, "HubSpotClient", return_value=hubspot_mock):
+        with caplog.at_level("WARNING"):
+            handle_ace_event.handler(event, context=None)
+    log_text = " ".join(r.message for r in caplog.records)
+    # Raw email never appears in logs; masked form does.
+    assert "evil@evil.example" not in log_text
+    assert "e***@evil.example" in log_text

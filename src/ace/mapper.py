@@ -213,6 +213,15 @@ _STATE_ABBR_TO_FULL: dict[str, str] = {
 }
 
 
+# A handful of full state names HubSpot stores that don't match AWS's
+# enum verbatim. Most full names ARE accepted by AWS (it accepts both
+# postal abbreviation and full name for most states), but DC has the
+# specific "Dist. of Columbia" form that "District of Columbia" misses.
+_STATE_FULL_NAME_TO_AWS_ENUM: dict[str, str] = {
+    "DISTRICT OF COLUMBIA": "Dist. of Columbia",
+}
+
+
 def _normalize_state(value: str | None) -> str:
     """Return the AWS-accepted full state name for a HubSpot state value.
 
@@ -228,7 +237,11 @@ def _normalize_state(value: str | None) -> str:
     if not value:
         return "Dist. of Columbia"
     upper = value.strip().upper()
-    return _STATE_ABBR_TO_FULL.get(upper, value)
+    if upper in _STATE_ABBR_TO_FULL:
+        return _STATE_ABBR_TO_FULL[upper]
+    if upper in _STATE_FULL_NAME_TO_AWS_ENUM:
+        return _STATE_FULL_NAME_TO_AWS_ENUM[upper]
+    return value
 
 
 class ACEMappingError(ValueError):
@@ -248,6 +261,29 @@ def _get(deal: dict[str, Any], key: str) -> Any:
     return deal.get(key)
 
 
+# ISO-3166 alpha-2 country codes. Full set is ~250 entries; we ship the
+# subset Pandora's federal/SLED audience plausibly encounters and force
+# any other value through the lookup map below. The strict allowlist
+# prevents the "United States" -> "UN" or "Germany" -> "GE" wrong-code
+# misroutings that AWS would silently accept and that violate CMMC L2
+# 3.1.3 (controlled flow of CUI by jurisdiction).
+_VALID_ISO3166_ALPHA2: frozenset[str] = frozenset({
+    # North America
+    "US", "CA", "MX",
+    # Europe (most common for federal partners)
+    "GB", "FR", "DE", "IT", "ES", "NL", "BE", "PT", "IE", "AT", "CH",
+    "SE", "NO", "DK", "FI", "PL", "CZ", "GR", "RO", "HU",
+    # APAC
+    "JP", "KR", "AU", "NZ", "SG", "IN", "ID", "MY", "PH", "TH", "VN",
+    "TW", "HK", "CN",
+    # Middle East / Africa (federal-relevant)
+    "IL", "AE", "SA", "QA", "KW", "TR", "EG", "ZA", "NG", "KE",
+    # Latin America
+    "BR", "AR", "CL", "CO", "PE",
+    # Other
+    "RU", "UA",
+})
+
 _COUNTRY_NAME_TO_ISO2: dict[str, str] = {
     "UNITED STATES": "US",
     "UNITED STATES OF AMERICA": "US",
@@ -256,25 +292,58 @@ _COUNTRY_NAME_TO_ISO2: dict[str, str] = {
     "U.S.A.": "US",
     "AMERICA": "US",
     "CANADA": "CA",
+    "MEXICO": "MX",
     "UNITED KINGDOM": "GB",
     "UK": "GB",
     "GREAT BRITAIN": "GB",
+    "ENGLAND": "GB",
+    "SCOTLAND": "GB",
+    "WALES": "GB",
+    "GERMANY": "DE",
+    "FRANCE": "FR",
+    "ITALY": "IT",
+    "SPAIN": "ES",
+    "NETHERLANDS": "NL",
+    "JAPAN": "JP",
+    "AUSTRALIA": "AU",
+    "INDIA": "IN",
+    "BRAZIL": "BR",
+    "CHINA": "CN",
+    "SOUTH KOREA": "KR",
+    "KOREA": "KR",
+    "ISRAEL": "IL",
+    "UNITED ARAB EMIRATES": "AE",
+    "UAE": "AE",
+    "SAUDI ARABIA": "SA",
 }
 
 
-def _normalize_country(value: str) -> str:
+def _normalize_country(value: str | None) -> str:
     """Convert a HubSpot country string to AWS's expected ISO-2 code.
 
-    HubSpot company records typically carry full country names ("United
-    States") but AWS Partner Central requires ISO-3166 alpha-2. Two-letter
-    inputs pass through untouched so SaaSify-shaped data works.
+    Strict allowlist: a free-text input that is not in the lookup map and
+    is not already a valid ISO-2 code raises ``ACEMappingError`` rather
+    than silently producing a wrong code (e.g. "Germany" -> "GE" which is
+    Georgia, or "Internal Test" -> "IN" which is India). Federal jurisdiction
+    routing depends on this; getting it wrong creates compliance gaps.
+
+    Empty / missing values default to ``"US"`` because Pandora's customer
+    base is overwhelmingly US-federal.
     """
     if not value:
         return "US"
     upper = value.strip().upper()
-    if len(upper) == 2:
+    if not upper:
+        return "US"
+    if upper in _COUNTRY_NAME_TO_ISO2:
+        return _COUNTRY_NAME_TO_ISO2[upper]
+    if len(upper) == 2 and upper in _VALID_ISO3166_ALPHA2:
         return upper
-    return _COUNTRY_NAME_TO_ISO2.get(upper, upper[:2])
+    raise ACEMappingError(
+        f"Cannot map country {value!r} to an ISO-3166 alpha-2 code. "
+        "Set the HubSpot company's Country/Region to a recognized value "
+        "(e.g. 'United States', 'Canada', 'Germany') or a valid ISO-2 code."
+    )
 
 
 def _company_prop(company: dict[str, Any] | None, key: str) -> str | None:
@@ -291,7 +360,8 @@ def _customer_block(
     """Build the Customer.Account block.
 
     Reads customer fields from the deal's associated HubSpot Company when
-    one is provided (the SaaSify-parity architecture). Falls back to deal-
+    one is provided (read from the associated record rather than
+    deal properties when available). Falls back to deal-
     level GovWin properties when no company is associated yet (still
     happens during early sync windows or when test fixtures pass minimal
     payloads).
@@ -359,35 +429,90 @@ def _customer_block(
     return {"Account": account}
 
 
+_PHONE_EXTENSION_MARKERS = (" x", " ext", " ext.", ",", ";")
+
+
+def _strip_phone_extension(raw: str) -> str:
+    """Drop everything from the first extension marker onward."""
+    lower = raw.lower()
+    cut = len(raw)
+    for marker in _PHONE_EXTENSION_MARKERS:
+        idx = lower.find(marker)
+        if idx >= 0:
+            cut = min(cut, idx)
+    return raw[:cut]
+
+
+def _is_implausible_phone(digits: str) -> bool:
+    """Reject obviously-garbage phone digit strings."""
+    if not digits:
+        return True
+    # All-same-digit (e.g. "0000000000", "1111111111") -- never legitimate.
+    if len(set(digits)) == 1:
+        return True
+    return False
+
+
 def _normalize_phone(value: str | None) -> str | None:
     """Convert a HubSpot phone string to E.164 (e.g. ``+12025550100``).
 
     AWS Partner Central enforces ``\\+[1-9]\\d{1,14}`` on phone fields and
-    rejects the entire submission when any contact phone fails. HubSpot
-    accepts free-form phone strings, so we strip non-digits, prepend ``+1``
-    for plausibly-US 10-digit numbers, and return None when the input
-    cannot be salvaged. Callers drop the field rather than emit an
-    unparseable value.
+    rejects the entire CreateOpportunity submission when any contact phone
+    fails. HubSpot accepts free-form phone strings; we tighten:
+
+      * Strip extension markers (``x123``, ``ext 5``, ``,567``, ``;789``)
+        before digit extraction so a US number with extension does not
+        produce a 14-digit garbage E.164.
+      * Reject phones whose digits are all the same character (``0000...``,
+        ``1111...``) -- never legitimate, often planted by form-spam.
+      * Require US 10-digit area codes to start ``[2-9]`` (NANP rule).
+      * Cap international numbers to 8-15 digits inclusive of country
+        code; require the leading digit to be ``[1-9]``.
+
+    Returns ``None`` when the input cannot be salvaged so callers drop the
+    Phone field rather than fail the whole submission.
     """
     if not value:
         return None
-    raw = str(value).strip()
+    raw = _strip_phone_extension(str(value).strip())
     if not raw:
         return None
     if raw.startswith("+"):
-        # User-supplied E.164. Strip whitespace and validate.
         digits = "".join(ch for ch in raw[1:] if ch.isdigit())
-        if 7 <= len(digits) <= 15 and digits[0] != "0":
-            return f"+{digits}"
-        return None
-    digits = "".join(ch for ch in raw if ch.isdigit())
-    if len(digits) == 10:
-        return f"+1{digits}"  # plausible US number
-    if len(digits) == 11 and digits.startswith("1"):
+        if not (8 <= len(digits) <= 15):
+            return None
+        if digits[0] == "0" or _is_implausible_phone(digits):
+            return None
         return f"+{digits}"
-    if 7 <= len(digits) <= 15 and digits[0] != "0":
-        return f"+{digits}"  # international without explicit "+"
+    digits = "".join(ch for ch in raw if ch.isdigit())
+    if not digits or _is_implausible_phone(digits):
+        return None
+    if len(digits) == 10:
+        # NANP rule: area code starts with [2-9]; the same constraint
+        # applies to the central-office code.
+        if digits[0] in "01":
+            return None
+        return f"+1{digits}"
+    if len(digits) == 11 and digits.startswith("1"):
+        if digits[1] in "01":
+            return None
+        return f"+{digits}"
+    if 8 <= len(digits) <= 15 and digits[0] != "0":
+        return f"+{digits}"
     return None
+
+
+# HubSpot lifecyclestage values whose contacts may be forwarded to AWS as
+# customer-side participants. Other stages (subscriber, evangelist, other,
+# internal Pandora staff misclassified by BD) are dropped to avoid leaking
+# PII to AWS reviewers under GDPR/CCPA "purpose limitation" and SOC 2 CC6.7.
+_FORWARDABLE_LIFECYCLESTAGES: frozenset[str] = frozenset({
+    "lead",
+    "marketingqualifiedlead",
+    "salesqualifiedlead",
+    "opportunity",
+    "customer",
+})
 
 
 def _customer_contacts(
@@ -399,6 +524,15 @@ def _customer_contacts(
     caps at that. AWS requires at least FirstName, LastName, Email per
     contact; entries missing any of those are dropped silently rather than
     raising the whole submission.
+
+    PII purpose-limitation: a contact is only forwarded to AWS when its
+    HubSpot ``lifecyclestage`` indicates customer-side intent (lead /
+    qualified lead / opportunity / customer). Internal Pandora staff or
+    misclassified contacts ("subscriber", "other", blank stage) are
+    dropped so PII never reaches AWS reviewers without a CRM-level
+    consent signal. Hyperscaler-Contact records (created by the
+    handle_ace_event Lambda) are also filtered out -- they're AWS-side
+    contacts, not customer-side.
     """
     out: list[dict[str, Any]] = []
     for c in contacts or []:
@@ -407,6 +541,14 @@ def _customer_contacts(
         last = props.get("lastname") or props.get("lastName")
         email = props.get("email")
         if not (first and last and email):
+            continue
+        # Skip Hyperscaler-Contact (AWS-side) records that were associated
+        # to the deal via handle_ace_event. They must not appear in
+        # Customer.Contacts[].
+        if str(props.get("hs_lead_status") or "").upper() == "HYPERSCALER_CONTACT":
+            continue
+        stage = str(props.get("lifecyclestage") or "").lower()
+        if stage and stage not in _FORWARDABLE_LIFECYCLESTAGES:
             continue
         entry: dict[str, Any] = {
             "FirstName": str(first)[:80],
@@ -429,10 +571,10 @@ def _customer_contacts(
 def _opportunity_team(owner: dict[str, Any] | None) -> list[dict[str, Any]]:
     """Build OpportunityTeam[] from the HubSpot deal owner.
 
-    AWS attributes the engagement to this person on the partner side; SaaSify
-    pulls (Owner).First Name / Last Name / Email and we mirror that. Returns
-    an empty list when no owner is set so the caller can omit the field
-    rather than emit a malformed payload.
+    AWS attributes the engagement to this person on the partner side. We
+    populate from the HubSpot deal owner so the partner contact follows
+    whoever owns the deal. Returns an empty list when no owner is set so
+    the caller can omit the field rather than emit a malformed payload.
     """
     if not owner:
         return []
@@ -449,6 +591,20 @@ def _opportunity_team(owner: dict[str, Any] | None) -> list[dict[str, Any]]:
             "BusinessTitle": "Partner",
         }
     ]
+
+
+def _scrub_text(value: Any, limit: int = 255) -> str:
+    """Strip control characters and truncate. Defense-in-depth against
+    HubSpot-supplied free-text values that downstream consumers (AWS
+    reviewer console) might render without escaping. We don't actively
+    validate the charset; we just remove the bytes that are never
+    legitimate in marketing copy.
+    """
+    if value is None:
+        return ""
+    text = str(value)
+    cleaned = "".join(ch for ch in text if ch == "\n" or ch == "\t" or ch >= " ")
+    return cleaned[:limit]
 
 
 def _marketing_block(deal: dict[str, Any]) -> dict[str, Any] | None:
@@ -474,13 +630,13 @@ def _marketing_block(deal: dict[str, Any]) -> dict[str, Any] | None:
         return None
     block: dict[str, Any] = {"Source": "Marketing Activity"}
     if campaign:
-        block["CampaignName"] = str(campaign)[:255]
+        block["CampaignName"] = _scrub_text(campaign, limit=255)
     if use_cases:
-        block["UseCases"] = _split_csv(use_cases)
+        block["UseCases"] = [_scrub_text(v, limit=80) for v in _split_csv(use_cases)]
     if channel:
-        block["Channels"] = [str(channel)]
-    if funded:
-        block["AwsFundingUsed"] = funded  # "Yes" / "No"
+        block["Channels"] = [_scrub_text(channel, limit=80)]
+    if funded in ("Yes", "No"):
+        block["AwsFundingUsed"] = funded
     return block
 
 
@@ -569,8 +725,7 @@ def _project_block(deal: dict[str, Any]) -> dict[str, Any]:
             # HubSpot stores deal amount as the total (typically annual or
             # full contract value). AWS expects ExpectedCustomerSpend.Amount
             # to match the declared Frequency. We bill the deal monthly, so
-            # divide by 12 to get the monthly equivalent. SaaSify uses the
-            # same factor (Expression: Amount * 0.083 ≈ 1/12). Without this,
+            # divide by 12 to get the monthly equivalent. Without this,
             # AWS reviewers see 12x the real spend.
             total = float(amount)
             # AWS regex on Amount rejects strict-zero. RFI-stage opps often
@@ -589,7 +744,7 @@ def _project_block(deal: dict[str, Any]) -> dict[str, Any]:
         except (TypeError, ValueError):
             logger.warning("ace.mapper: invalid amount %r on deal %s", amount, deal.get("id"))
 
-    # BD-editable additions (SaaSify parity).
+    # BD-editable extensions for richer AWS-side context.
     additional = _get(deal, "govwin_ace_additional_comments")
     if additional:
         project["AdditionalComments"] = str(additional)[:255]
@@ -650,7 +805,7 @@ def map_hubspot_deal_to_ace_create_payload(
     :param config: app config (provides catalog and default origin/involvement).
     :param client_token: caller-supplied UUID; persist before calling ``CreateOpportunity``.
     :param company: associated HubSpot Company; if provided, Customer.Account.*
-        is populated from it (SaaSify-parity). Caller fetches via
+        is populated from it. Caller fetches via
         ``HubSpotClient.get_associated_company``.
     :param contacts: associated HubSpot Contacts; mapped into
         ``Customer.Contacts[]``. Caller fetches via

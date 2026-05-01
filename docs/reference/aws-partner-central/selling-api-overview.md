@@ -4,7 +4,7 @@
 
 ## What it is
 
-The AWS Partner Central Selling API is a public, REST-based AWS service that lets partners create and manage ACE opportunities, engagements, and solutions programmatically. It is the official replacement path for partners who don't use the no-code Salesforce CRM Connector or third-party tools (Commercient, SaaSify, Tackle, etc.).
+The AWS Partner Central Selling API is a public, REST-based AWS service that lets partners create and manage ACE opportunities, engagements, and solutions programmatically. It is the official replacement path for partners who don't use the no-code Salesforce CRM Connector or third-party connectors.
 
 - **Service name (boto3 / SDK):** `partnercentral-selling`
 - **API version:** `2022-07-26`
@@ -18,7 +18,7 @@ The AWS Partner Central Selling API is a public, REST-based AWS service that let
 | Route | Audience | Cost | Notes |
 |---|---|---|---|
 | **AWS Partner CRM Connector for Salesforce** | Salesforce-only orgs | Free package, configuration costs apply | No-code, AWS-managed AppExchange package |
-| **Third-party connector** (Zoho, Microsoft Dynamics, SaaSify, Tackle, Commercient) | Anyone using these CRMs | Vendor subscription | Quality and feature breadth varies wildly |
+| **Third-party connector** (various vendors for Zoho, Microsoft Dynamics, etc.) | Anyone using these CRMs | Vendor subscription | Quality and feature breadth varies wildly |
 | **Custom integration via Selling API** | Anyone | AWS API costs are minimal; dev cost varies | This is the route this project uses |
 
 AWS estimates "3-12 weeks of initial development" for a custom integration, *which assumes solo human engineering*. With Claude Code that compresses meaningfully — see the project plan for actual estimates.

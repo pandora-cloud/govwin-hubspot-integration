@@ -109,4 +109,4 @@ Before calling this:
 
 ## Why this matters for this project
 
-This is the call that replaces SaaSify. SaaSify's value-add is exactly this submission step — they collect the HubSpot deal, validate the payload, and call `StartEngagementFromOpportunityTask` on the partner's behalf. By calling it ourselves we eliminate the SaaSify dependency.
+This is the call that closes out the submission flow. The partner-side value-add is exactly this step: collect the HubSpot deal, validate the payload, and call `StartEngagementFromOpportunityTask`. By calling it directly we avoid any third-party connector dependency.

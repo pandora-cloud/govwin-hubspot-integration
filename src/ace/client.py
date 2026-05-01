@@ -327,12 +327,19 @@ class ACEClient:
         }
         scrubbed = {k: v for k, v in current.items() if k in allowed}
 
-        # AWS sometimes returns a stub ExpectedCustomerSpend entry with
-        # only CurrencyCode populated (e.g. for opportunities created
-        # without an Amount). UpdateOpportunity's boto3 client-side
-        # validator rejects entries missing required Amount / Frequency /
-        # TargetCompany. Drop incomplete entries; if the resulting list
-        # is empty, drop the field entirely.
+        # AWS sometimes returns stub fields the boto3 client-side validator
+        # rejects on UpdateOpportunity. Specifically:
+        #
+        #   * ExpectedCustomerSpend may include an entry with only
+        #     CurrencyCode populated -- Amount / Frequency / TargetCompany
+        #     are all required when the entry is present.
+        #   * Customer.Contacts[] may contain entries missing FirstName /
+        #     LastName / Email when AWS auto-populated from invitations.
+        #   * Project.SalesActivities may come back as [] which AWS rejects
+        #     when present (must be non-empty if the key exists).
+        #   * Marketing may come back as {Source: "None"} which AWS rejects
+        #     when paired with companion fields. Drop the whole block in
+        #     that case to mirror the create-path logic.
         project = scrubbed.get("Project")
         if isinstance(project, dict):
             spend = project.get("ExpectedCustomerSpend")
@@ -348,6 +355,33 @@ class ACEClient:
                     project["ExpectedCustomerSpend"] = cleaned
                 else:
                     project.pop("ExpectedCustomerSpend", None)
+            activities = project.get("SalesActivities")
+            if isinstance(activities, list) and not activities:
+                project.pop("SalesActivities", None)
+
+        customer = scrubbed.get("Customer")
+        if isinstance(customer, dict):
+            contacts = customer.get("Contacts")
+            if isinstance(contacts, list):
+                cleaned_contacts = [
+                    c for c in contacts
+                    if isinstance(c, dict)
+                    and c.get("FirstName")
+                    and c.get("LastName")
+                    and c.get("Email")
+                ]
+                if cleaned_contacts:
+                    customer["Contacts"] = cleaned_contacts
+                else:
+                    customer.pop("Contacts", None)
+
+        marketing = scrubbed.get("Marketing")
+        if isinstance(marketing, dict):
+            source = marketing.get("Source")
+            if source in (None, "", "None"):
+                # AWS rejects companion fields when Source is not
+                # "Marketing Activity". Drop the whole block.
+                scrubbed.pop("Marketing", None)
 
         return scrubbed
 

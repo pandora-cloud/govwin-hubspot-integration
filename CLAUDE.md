@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-End-to-end pipeline from Deltek GovWin IQ through HubSpot CRM into AWS Partner Central, deployed on AWS via Terraform. v2 ships its own AWS Partner Central Selling-API client (no SaaSify dependency) on top of the v1 GovWin-to-HubSpot sync.
+End-to-end pipeline from Deltek GovWin IQ through HubSpot CRM into AWS Partner Central, deployed on AWS via Terraform. v2 ships its own AWS Partner Central Selling-API client on top of the v1 GovWin-to-HubSpot sync.
 
 - **Public repo**: `github.com/pandora-cloud-llc/govwin-hubspot-integration` (also mirrored to a private GitLab; both `.gitlab-ci.yml` and `.github/workflows/ci.yml` run on every push)
 - **CI**: lint + types + unit tests + secret scan
@@ -116,7 +116,7 @@ REST/JSON API for retrieving government contracting data. Reference doc: `docs/D
 
 ### AWS Partner Central Selling API (v2)
 
-Direct boto3 calls to `partnercentral-selling` (us-east-1, IAM SigV4 auth) replace SaaSify. Three-call submission flow: `CreateOpportunity` -> `AssociateOpportunity` -> `StartEngagementFromOpportunityTask`. Quotas: 1 write/sec + 10K/24h, 10 reads/sec + 100K/24h. Inbound state changes flow through EventBridge `aws.partnercentral-selling`. Reference docs in `docs/reference/aws-partner-central/`.
+Direct boto3 calls to `partnercentral-selling` (us-east-1, IAM SigV4 auth). Three-call submission flow: `CreateOpportunity` -> `AssociateOpportunity` -> `StartEngagementFromOpportunityTask`. Quotas: 1 write/sec + 10K/24h, 10 reads/sec + 100K/24h. Inbound state changes flow through EventBridge `aws.partnercentral-selling`. Reference docs in `docs/reference/aws-partner-central/`.
 
 ## Key Design Decisions
 

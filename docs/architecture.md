@@ -2,7 +2,7 @@
 
 ## System Context
 
-This integration sits between three external APIs and orchestrates data flow on AWS. The pipeline runs end-to-end from GovWin IQ into HubSpot CRM and onward to AWS Partner Central via the integration's own Partner Central Selling API client. SaaSify is no longer required.
+This integration sits between three external APIs and orchestrates data flow on AWS. The pipeline runs end-to-end from GovWin IQ into HubSpot CRM and onward to AWS Partner Central via the integration's own Partner Central Selling API client; no third-party connector is required.
 
 ![Pipeline Overview](diagrams/pipeline-overview.svg)
 

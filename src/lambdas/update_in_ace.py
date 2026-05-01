@@ -55,12 +55,22 @@ def _apply_delta(payload: dict[str, Any], prop: str, value: Any) -> bool:
 
     if prop == "amount":
         try:
-            spend = float(value)
+            total = float(value)
         except (TypeError, ValueError):
             return False
+        # Match the create-path MRR convention: HubSpot stores annual/total
+        # contract value, AWS expects ExpectedCustomerSpend.Amount paired
+        # with Frequency=Monthly. Divide by 12. Without this, an amount
+        # update via webhook would write a value 12x the create-path
+        # baseline -- a real divergence between the two paths.
+        if total <= 0:
+            project.pop("ExpectedCustomerSpend", None)
+            payload["Project"] = project
+            return True
+        monthly = total / 12.0
         project["ExpectedCustomerSpend"] = [
             {
-                "Amount": f"{spend:.2f}",
+                "Amount": f"{monthly:.2f}",
                 "CurrencyCode": "USD",
                 "Frequency": "Monthly",
                 "TargetCompany": "Pandora Cloud LLC",
@@ -103,27 +113,50 @@ def _apply_delta(payload: dict[str, Any], prop: str, value: Any) -> bool:
         payload["Project"] = project
         return True
 
-    # SaaSify-parity BD-editable fields. Each is a thin pass-through onto
+    # Extended BD-editable fields. Each is a thin pass-through onto
     # the AWS UpdateOpportunity payload.
+    #
+    # Empty / whitespace-only values mean BD wants to clear the field.
+    # AWS UpdateOpportunity rejects empty strings on most regex-validated
+    # fields, so we drop the key from the payload (which under PUT
+    # semantics clears the value to null) rather than send "".
+    text = str(value).strip() if value is not None else ""
+
     if prop == "govwin_ace_competitor_name":
-        project["CompetitorName"] = str(value)[:255] if value else ""
+        if text:
+            project["CompetitorName"] = text[:255]
+        else:
+            project.pop("CompetitorName", None)
         payload["Project"] = project
         return True
     if prop == "govwin_ace_additional_comments":
-        project["AdditionalComments"] = str(value)[:255] if value else ""
+        if text:
+            project["AdditionalComments"] = text[:255]
+        else:
+            project.pop("AdditionalComments", None)
         payload["Project"] = project
         return True
     if prop == "govwin_ace_aws_account_id":
-        project["CustomerAwsAccountId"] = str(value)[:12] if value else ""
+        # AWS account id must be 12 digits if present.
+        if text and text.isdigit() and len(text) == 12:
+            project["CustomerAwsAccountId"] = text
+        else:
+            project.pop("CustomerAwsAccountId", None)
         payload["Project"] = project
         return True
     if prop == "govwin_ace_next_steps":
         life_cycle = dict(payload.get("LifeCycle") or {})
-        life_cycle["NextSteps"] = str(value)[:255] if value else ""
+        if text:
+            life_cycle["NextSteps"] = text[:255]
+        else:
+            life_cycle.pop("NextSteps", None)
         payload["LifeCycle"] = life_cycle
         return True
     if prop == "govwin_ace_related_opportunity_id":
-        project["RelatedOpportunityIdentifier"] = str(value) if value else ""
+        if text:
+            project["RelatedOpportunityIdentifier"] = text
+        else:
+            project.pop("RelatedOpportunityIdentifier", None)
         payload["Project"] = project
         return True
 
@@ -141,15 +174,27 @@ def _apply_delta(payload: dict[str, Any], prop: str, value: Any) -> bool:
         marketing = dict(payload.get("Marketing") or {})
         aws_field = marketing_props[prop]
         if aws_field == "UseCases":
-            marketing[aws_field] = (
-                [v.strip() for v in str(value).split(";") if v.strip()]
-                if value else []
-            )
+            entries = [v.strip() for v in text.split(";") if v.strip()] if text else []
+            if entries:
+                marketing[aws_field] = entries
+            else:
+                marketing.pop(aws_field, None)
         elif aws_field == "Channels":
-            marketing[aws_field] = [str(value)] if value else []
+            if text:
+                marketing[aws_field] = [text]
+            else:
+                marketing.pop(aws_field, None)
         else:
-            marketing[aws_field] = str(value) if value else ""
-        payload["Marketing"] = marketing
+            if text:
+                marketing[aws_field] = text
+            else:
+                marketing.pop(aws_field, None)
+        # AWS rejects companion Marketing fields when Source is None / unset.
+        # If Source has been cleared, drop the whole block to avoid that.
+        if marketing.get("Source") in (None, "", "None"):
+            payload.pop("Marketing", None)
+        else:
+            payload["Marketing"] = marketing
         return True
 
     return False
