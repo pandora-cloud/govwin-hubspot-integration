@@ -6,7 +6,6 @@ import json
 import logging
 from typing import Any
 
-import boto3
 import httpx
 from botocore.exceptions import ClientError
 from tenacity import (
@@ -17,6 +16,7 @@ from tenacity import (
     wait_exponential,
 )
 
+from src.aws_clients import make_client
 from src.config import AppConfig
 from src.hubspot.properties import (
     COMPANY_PROPERTIES,
@@ -58,9 +58,7 @@ class HubSpotClient:
         self._token: str | None = None
         self._http = httpx.Client(timeout=httpx.Timeout(connect=10, read=30, write=10, pool=5))
         self._pipeline_id: str | None = None
-        self._secrets_client = boto3.client(
-            "secretsmanager", region_name=config.aws.region
-        )
+        self._secrets_client = make_client("secretsmanager", config.aws.region)
         self._stage_label_to_id: dict[str, str] = {}
 
     def close(self) -> None:

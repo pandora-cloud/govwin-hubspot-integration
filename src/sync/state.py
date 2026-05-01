@@ -7,9 +7,9 @@ import time
 from datetime import UTC, datetime
 from typing import Any
 
-import boto3
 from botocore.exceptions import ClientError
 
+from src.aws_clients import make_resource
 from src.config import AppConfig
 
 logger = logging.getLogger(__name__)
@@ -25,7 +25,7 @@ class SyncStateManager:
 
     def __init__(self, config: AppConfig) -> None:
         self._config = config
-        self._dynamodb = boto3.resource("dynamodb", region_name=config.aws.region)
+        self._dynamodb = make_resource("dynamodb", config.aws.region)
         self._state_table = self._dynamodb.Table(config.aws.sync_state_table)
         self._mappings_table = self._dynamodb.Table(config.aws.entity_mappings_table)
 

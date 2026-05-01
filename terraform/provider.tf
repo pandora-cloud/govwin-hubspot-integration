@@ -18,6 +18,13 @@ provider "aws" {
   region  = var.aws_region
   profile = var.aws_profile
 
+  # Federal compliance posture: every AWS API call from Terraform itself
+  # resolves to a FIPS 140-validated TLS endpoint. NIST 800-53 SC-13,
+  # CMMC L2 SC.L2-3.13.11. The Lambdas enforce the same via
+  # AWS_USE_FIPS_ENDPOINT=true on each function (see modules/lambda/main.tf
+  # and modules/ace/lambda.tf).
+  use_fips_endpoint = true
+
   dynamic "assume_role" {
     for_each = var.deployer_role_arn == "" ? [] : [var.deployer_role_arn]
     content {

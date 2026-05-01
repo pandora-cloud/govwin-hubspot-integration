@@ -246,6 +246,9 @@ locals {
     GOVWIN_MARKED_VERSION     = var.govwin_marked_version
     INITIAL_LOOKBACK_DAYS     = tostring(var.initial_lookback_days)
     BATCH_SIZE                = tostring(var.batch_size)
+    # Federal compliance: force FIPS 140-validated TLS endpoints on every
+    # AWS API call. NIST 800-53 SC-13, CMMC L2 SC.L2-3.13.11.
+    AWS_USE_FIPS_ENDPOINT = "true"
   }
 }
 

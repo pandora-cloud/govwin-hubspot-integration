@@ -18,7 +18,14 @@ import uuid
 import boto3
 import pytest
 
-from src.config import AppConfig, AWSConfig, GovWinConfig, HubSpotConfig, SyncConfig
+from src.config import (
+    ACEConfig,
+    AppConfig,
+    AWSConfig,
+    GovWinConfig,
+    HubSpotConfig,
+    SyncConfig,
+)
 from src.govwin.auth import GovWinAuth
 from src.sync.state import SyncStateManager
 
@@ -56,6 +63,7 @@ def app_config() -> AppConfig:
             govwin_tokens_secret_name=os.environ["GOVWIN_TOKENS_SECRET_NAME"],
         ),
         sync=SyncConfig(),
+        ace=ACEConfig(catalog="Sandbox"),
         environment="dev",
     )
 
@@ -77,7 +85,8 @@ def test_resources_exist(aws_clients, app_config):
 
 def test_sync_cursor_round_trip(app_config):
     state = SyncStateManager(app_config)
-    timestamp = "2026-04-28T12:00:00+00:00"
+    # WSAPI cursor contract is strict MM/DD/YYYY, enforced by set_last_sync_timestamp.
+    timestamp = "04/28/2026"
 
     state.set_last_sync_timestamp(timestamp)
     assert state.get_last_sync_timestamp() == timestamp

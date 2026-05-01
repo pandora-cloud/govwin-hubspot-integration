@@ -192,11 +192,11 @@ def test_batch_serialization_drops_entries_without_id(
     assert ids == ["OPP1"]
 
 
-@patch.object(govwin_orchestrator, "boto3")
-def test_ensure_sqs_caches_client(boto3_mod, monkeypatch):
+@patch.object(govwin_orchestrator, "make_client")
+def test_ensure_sqs_caches_client(make_client_mock, monkeypatch):
     govwin_orchestrator._sqs_client = None
-    boto3_mod.client.return_value = MagicMock()
+    make_client_mock.return_value = MagicMock()
     a = govwin_orchestrator._ensure_sqs("us-east-1")
     b = govwin_orchestrator._ensure_sqs("us-east-1")
     assert a is b
-    assert boto3_mod.client.call_count == 1
+    assert make_client_mock.call_count == 1

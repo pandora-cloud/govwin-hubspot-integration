@@ -1,12 +1,20 @@
 services:
   localstack:
-    image: localstack/localstack:latest
+    # Pin to the last unambiguously community (free) tag. The :latest tag
+    # in late 2026 began requiring a paid LOCALSTACK_AUTH_TOKEN to start;
+    # 3.8 keeps the integration suite runnable for any contributor with
+    # only Docker installed.
+    image: localstack/localstack:3.8
     ports:
       - "4566:4566"
     environment:
       - SERVICES=dynamodb,secretsmanager,sns,sqs
       - DEBUG=0
       - DEFAULT_REGION=us-east-1
+      # moto and LocalStack do not implement the FIPS-suffixed hostnames;
+      # production keeps FIPS on, but local integration tests need the
+      # standard endpoints. The boto3 SDK honors this env var natively.
+      - AWS_USE_FIPS_ENDPOINT=false
     volumes:
       - "./scripts/localstack-init.sh:/etc/localstack/init/ready.d/init.sh"
     healthcheck:
@@ -35,6 +43,12 @@ services:
       - GOVWIN_MARKED_VERSION=2.2
       - LOG_LEVEL=INFO
       - ENVIRONMENT=dev
+      # Match the localstack service: skip FIPS endpoints in local mode.
+      - AWS_USE_FIPS_ENDPOINT=false
     volumes:
       - .:/app
-    command: ["python", "-m", "pytest", "tests/", "-v", "--tb=short"]
+    # Only the integration suite belongs here. Unit tests use moto and
+    # should run with `make test`; pointing them at LocalStack causes
+    # double-creation conflicts because their fixtures create tables that
+    # the LocalStack init script already created.
+    command: ["python", "-m", "pytest", "tests/integration/", "-v", "--tb=short"]

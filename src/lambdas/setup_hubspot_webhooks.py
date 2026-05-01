@@ -14,9 +14,9 @@ import logging
 import os
 from typing import Any
 
-import boto3
 from botocore.exceptions import ClientError
 
+from src.aws_clients import make_client
 from src.config import load_config
 from src.hubspot.client import HubSpotAPIError, HubSpotClient
 from src.lambdas._webhook_routing import ALL_SUBSCRIBED_PROPERTIES
@@ -38,7 +38,7 @@ _SUBSCRIPTIONS: list[dict[str, Any]] = [
 
 
 def _load_app_secret(secret_name: str, region: str) -> dict[str, Any]:
-    client = boto3.client("secretsmanager", region_name=region)
+    client = make_client("secretsmanager", region)
     try:
         response = client.get_secret_value(SecretId=secret_name)
     except ClientError as exc:

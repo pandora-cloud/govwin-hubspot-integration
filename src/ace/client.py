@@ -17,7 +17,6 @@ import logging
 import uuid
 from typing import Any, NoReturn, cast
 
-import boto3
 from botocore.exceptions import ClientError
 from tenacity import (
     retry,
@@ -27,6 +26,7 @@ from tenacity import (
 )
 
 from src.ace.rate_limiter import ACERateLimiter
+from src.aws_clients import make_client
 from src.config import AppConfig
 
 logger = logging.getLogger(__name__)
@@ -54,8 +54,10 @@ class ACEClient:
     def __init__(self, config: AppConfig, boto3_client: Any | None = None) -> None:
         self._config = config
         self._catalog = config.ace.catalog
-        self._client = boto3_client or boto3.client(
-            "partnercentral-selling", region_name=config.aws.region
+        # partnercentral-selling is exposed only in us-east-1; FIPS endpoint
+        # is selected automatically. make_client enforces both.
+        self._client = boto3_client or make_client(
+            "partnercentral-selling", config.aws.region
         )
         self._rate_limiter = ACERateLimiter(
             reads_per_sec=config.ace.rate_limit_reads_per_sec,

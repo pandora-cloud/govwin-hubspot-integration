@@ -22,9 +22,9 @@ import os
 import re
 from typing import Any
 
-import boto3
 from botocore.exceptions import ClientError
 
+from src.aws_clients import make_client
 from src.config import load_config
 from src.govwin.auth import GovWinAuth
 from src.govwin.client import GovWinClient, GovWinRateLimitError
@@ -53,7 +53,7 @@ def _publish_failure_alert(
         return
     global _sns_client
     if _sns_client is None:
-        _sns_client = boto3.client("sns", region_name=config.aws.region)
+        _sns_client = make_client("sns", config.aws.region)
     try:
         _sns_client.publish(
             TopicArn=topic_arn,

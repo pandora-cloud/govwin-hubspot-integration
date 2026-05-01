@@ -40,7 +40,12 @@ _PERMANENT_ERROR_CODES: set[str] = {
 }
 
 
-def _apply_delta(payload: dict[str, Any], prop: str, value: Any) -> bool:
+def _apply_delta(
+    payload: dict[str, Any],
+    prop: str,
+    value: Any,
+    partner_company_name: str = "Partner Company",
+) -> bool:
     """Mutate ``payload`` (an UpdateOpportunity body) for one property change.
 
     AWS UpdateOpportunity has PUT semantics; the caller has already fetched
@@ -73,7 +78,7 @@ def _apply_delta(payload: dict[str, Any], prop: str, value: Any) -> bool:
                 "Amount": f"{monthly:.2f}",
                 "CurrencyCode": "USD",
                 "Frequency": "Monthly",
-                "TargetCompany": "Pandora Cloud LLC",
+                "TargetCompany": partner_company_name,
             }
         ]
         payload["Project"] = project
@@ -253,6 +258,7 @@ def _resolve_property_value(
 def _process_event(
     hs_event: dict[str, Any],
     *,
+    config: Any,
     state: SyncStateManager,
     ace: ACEClient,
     hubspot: HubSpotClient,
@@ -282,7 +288,7 @@ def _process_event(
     current = ace.get_opportunity(str(ace_id))
     payload = ACEClient.scrub_for_update(current)
     value = _resolve_property_value(hs_event, hubspot, deal_id, str(prop))
-    if not _apply_delta(payload, str(prop), value):
+    if not _apply_delta(payload, str(prop), value, config.ace.partner_company_name):
         return {"status": "skipped", "reason": f"no relevant field for {prop}"}
 
     response = ace.update_with_retry(
@@ -318,7 +324,7 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
                 continue
             try:
                 results.append(
-                    _process_event(hs_event, state=state, ace=ace, hubspot=hubspot)
+                    _process_event(hs_event, config=config, state=state, ace=ace, hubspot=hubspot)
                 )
             except ACEAPIError as exc:
                 if exc.code in _PERMANENT_ERROR_CODES:
