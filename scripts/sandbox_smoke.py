@@ -1,7 +1,7 @@
 """Sandbox smoke matrix for the AWS Partner Central submission half (Phase 4.1).
 
-Runs scenarios 1-10 from docs/testing.md against a real Sandbox catalog in
-Pandora's AWS account. Cleans up sandbox opportunities at the end.
+Runs scenarios 1-10 from docs/testing-in-your-account.md against a real Sandbox catalog in
+the deployer's AWS account. Cleans up sandbox opportunities at the end.
 
 Scenarios:
   1. CreateOpportunity (with OtherSolutionDescription so the opp is valid even
@@ -86,7 +86,7 @@ REGION = "us-east-1"
 DEFAULT_AWS_PRODUCT = "AmazonEC2Linux"
 OTHER_SOLUTION_DESCRIPTION = (
     "Sandbox smoke test: AWS migration accelerator for federal customers. "
-    "Pandora Cloud delivers professional services around discovery, landing zone, "
+    "Partner delivers professional services around discovery, landing zone, "
     "workload migration, and post-migration optimization."
 )
 
@@ -107,7 +107,7 @@ def _build_create_payload(client_token: str) -> dict[str, Any]:
     return {
         "Catalog": CATALOG,
         "ClientToken": client_token,
-        # Partner Referral = we (Pandora) are originating this opportunity.
+        # Partner Referral = the deploying partner is originating this opportunity.
         # Do NOT use "AWS Referral" here even in Sandbox: that flow places
         # the opportunity in a separate incoming-invitation inbox not
         # visible to GetOpportunity until accepted.
@@ -142,7 +142,9 @@ def _build_create_payload(client_token: str) -> dict[str, Any]:
                     "Amount": "100000.00",
                     "CurrencyCode": "USD",
                     "Frequency": "Monthly",
-                    "TargetCompany": "Pandora Cloud LLC",
+                    "TargetCompany": os.environ.get(
+                        "ACE_PARTNER_COMPANY_NAME", "Partner Company"
+                    ),
                 }
             ],
         },
@@ -333,7 +335,7 @@ def _synth_event(detail_type: str, detail: dict[str, Any]) -> dict[str, Any]:
         "id": str(uuid.uuid4()),
         "detail-type": detail_type,
         "source": "aws.partnercentral-selling",
-        "account": "555049241846",
+        "account": "123456789012",
         "region": REGION,
         "time": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "resources": [],
@@ -559,7 +561,7 @@ def main() -> int:
         "--solution-id",
         default=os.environ.get("ACE_DEFAULT_SOLUTION_ID", ""),
         help=(
-            "Partner Central Solution ID to associate (e.g. S-0051246). "
+            "Partner Central Solution ID to associate (e.g. S-1234567). "
             "Used only if it appears in the Sandbox solutions list."
         ),
     )

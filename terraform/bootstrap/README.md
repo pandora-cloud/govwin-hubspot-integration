@@ -10,7 +10,7 @@ The deployer role's trust policy requires MFA on assume by default. The bootstra
 
 The deployer role can update Lambda code, IAM policies, secrets, DynamoDB tables, and the public-facing webhook API for the entire integration. A leaked access key with `sts:AssumeRole` on the deployer ARN is a full account compromise vector. MFA on the assume converts a leaked-key incident from "attacker has a working session" into "attacker also needs the user's MFA device". This is the difference between a recoverable credential rotation and a forensics engagement.
 
-It also satisfies compliance requirements that apply directly to Pandora Cloud's federal contracting work: NIST 800-53 IA-2(1) (multi-factor authentication for privileged accounts), CMMC L2 control IA.L2-3.5.3 (MFA for privileged access), and SOC 2 CC6.6. Without MFA on the deployer, those controls are not implemented for this account, and any audit will flag it.
+It also satisfies compliance requirements that apply to federal contracting workloads: NIST 800-53 IA-2(1) (multi-factor authentication for privileged accounts), CMMC L2 control IA.L2-3.5.3 (MFA for privileged access), and SOC 2 CC6.6. Without MFA on the deployer, those controls are not implemented for this account, and any audit will flag it.
 
 ### When you can flip it off
 
@@ -127,7 +127,7 @@ Terraform copies the state into the new bucket and updates the local pointer.
 
 ## Why a bootstrap module instead of just instructions
 
-Pandora Cloud is a security-and-compliance shop. The IAM policies in `policies/` are the project's actual permission model, version-controlled, code-reviewable, and reviewable by federal compliance auditors. A markdown blob of copy-pasted JSON is fragile: it drifts from what the code requires, and reviewers can't tell whether what's documented matches what's deployed. Code wins.
+The IAM policies in `policies/` are the project's actual permission model, version-controlled, code-reviewable, and reviewable by federal compliance auditors. A markdown blob of copy-pasted JSON is fragile: it drifts from what the code requires, and reviewers can't tell whether what's documented matches what's deployed. Code wins.
 
 ## Re-running bootstrap
 

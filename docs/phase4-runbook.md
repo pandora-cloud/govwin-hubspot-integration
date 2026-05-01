@@ -22,7 +22,7 @@ AWS docs claim a default Solution `S-1234567` ships with every Sandbox catalog. 
 - The deployed Lambda already does the right thing: when `resolve_solution_id` returns empty, `submit_to_ace` skips `AssociateOpportunity` and relies on `OtherSolutionDescription` on the original `CreateOpportunity` payload. AWS accepts this. See `submit_to_ace.py` step 3.
 - For smoke testing of the three-call flow without a real Sandbox Solution, `scripts/sandbox_smoke.py` falls back to `AssociateOpportunity(RelatedEntityType="AwsProducts")` against an entry from the canonical `aws_products.json` reference list (default `AmazonEC2Linux`). This keeps every step exercised end-to-end.
 
-For Sandbox-catalog deployments the `ace_default_solution_id` Terraform variable should be `""` (empty) unless and until AWS provisions a Solution for your org. An AWS-catalog Solution ID like `S-0051246` will fail validation against the Sandbox catalog.
+For Sandbox-catalog deployments the `ace_default_solution_id` Terraform variable should be `""` (empty) unless and until AWS provisions a Solution for your org. An AWS-catalog Solution ID like `S-1234567` will fail validation against the Sandbox catalog.
 
 ## Phase 4.1 - Sandbox smoke matrix
 
@@ -74,7 +74,7 @@ aws lambda invoke \
 
 ```bash
 python scripts/sandbox_smoke.py \
-  --solution-id S-0051246 \
+  --solution-id S-1234567 \
   --api-url "$(cd terraform && terraform output -raw hubspot_webhook_target_url)"
 ```
 
@@ -121,7 +121,7 @@ aws logs tail --follow /aws/lambda/govwin-hubspot-prod-submit-to-ace \
 
 Expect:
 - Receiver: `hubspot webhook accepted: submit=1 update=0 dropped=0` and a 200 response
-- Submit Lambda: `ace.created opportunity_id=O-...`, then `ace.associated solution=S-0051246 ...`, then `ace.engagement_started task=...`
+- Submit Lambda: `ace.created opportunity_id=O-...`, then `ace.associated solution=S-1234567 ...`, then `ace.engagement_started task=...`
 - DynamoDB: `aws dynamodb get-item --table-name govwin-hubspot-prod-entity-mappings --key '{"pk":{"S":"ACE#<govwin_id>"},"sk":{"S":"MAPPING"}}'` shows the mapping persisted
 
 ### Step 7: End-to-end scenario 11

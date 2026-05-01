@@ -6,7 +6,7 @@ Step-by-step instructions for deploying the GovWin-to-HubSpot integration on AWS
 
 ### AWS-side (upstream of this project)
 
-These are AWS account-level prerequisites that this project does **not** automate. They depend on Pandora's relationship with AWS Partner Network and need to be in place before you deploy.
+These are AWS account-level prerequisites that this project does **not** automate. They depend on the deploying partner's relationship with AWS Partner Network and need to be in place before you deploy.
 
 - [ ] **AWS Partner Central account** in good standing. See the [AWS Partner Network onboarding guide](https://aws.amazon.com/partners/welcome/) for the broader registration flow.
 - [ ] **At least one Approved Solution** registered in Partner Central. Verify with:
@@ -234,14 +234,21 @@ govwin_password      = "your-password"
 hubspot_private_app_token = "pat-na1-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
 
 # Required for v2 (HubSpot to AWS Partner Central submission)
-ace_default_solution_id       = "S-0051246"          # from `aws partnercentral-selling list-solutions`
+ace_default_solution_id       = "S-1234567"          # from `aws partnercentral-selling list-solutions`
+ace_partner_company_name      = "Acme Cloud LLC"     # YOUR company's legal name; surfaces as
+                                                     # ExpectedCustomerSpend.TargetCompany on every AWS
+                                                     # co-sell submission. The default ("Partner Company")
+                                                     # is harmless in Sandbox but is NOT what you want
+                                                     # in production. Set this before flipping
+                                                     # ace_catalog = "AWS".
+ace_trigger_stages            = "3590200042,3590200043"  # numeric HubSpot pipeline-stage IDs (see step 9b.i)
 hubspot_webhook_app_id        = "12345678"           # from `hs project upload`
 hubspot_webhook_client_secret = "<from HubSpot dev portal>"
 
 # Optional - keep defaults unless you need to override
 ace_catalog        = "Sandbox"                        # flip to "AWS" only after sandbox smoke passes
 aws_region         = "us-east-1"
-sync_schedule      = "rate(4 hours)"
+sync_schedule      = "rate(1 hour)"
 notification_email = "alerts@company.com"
 ```
 
@@ -318,23 +325,21 @@ The `setup_hubspot` Lambda runs automatically during deployment and creates the 
 
 ### Trigger First Sync
 
-The first scheduled sync will run automatically. To trigger it immediately:
+The first scheduled sync will run automatically. To trigger it immediately, invoke the orchestrator Lambda directly:
 
 ```bash
-# Get the state machine ARN from Terraform output
-terraform output step_function_arn
-
-# Start execution
-aws stepfunctions start-execution \
-  --state-machine-arn <arn-from-above> \
-  --name "manual-first-sync-$(date +%s)"
+aws lambda invoke --function-name govwin-hubspot-prod-govwin-orchestrator \
+  --region us-east-1 /tmp/orch.json && cat /tmp/orch.json
 ```
+
+The orchestrator handles token refresh, runs the configured discovery mode (marked / saved-search / bookmarked / date-range), and fans the resulting opportunity batches out to SQS. The worker Lambda then drains the queue. v2.1 replaced the v2.0 Step Functions chain with this Lambda + SQS pattern; if you see references to `terraform output step_function_arn` in older docs, they are stale.
 
 ### Monitor
 
-- **Step Functions Console**: See execution status and step-by-step progress
-- **CloudWatch Logs**: Detailed logs for each Lambda function
-- **SNS Notifications**: Summary email after each sync (if notification_email is set)
+- **Lambda console**: see invocation counts, errors, and durations for `govwin-hubspot-prod-govwin-orchestrator` and `govwin-hubspot-prod-govwin-worker`
+- **CloudWatch Logs**: per-function log streams under `/aws/lambda/<function-name>`
+- **SQS console**: backlog and DLQ depth for the sync, ACE submission, ACE update, and webhook queues
+- **SNS Notifications**: summary email after each sync (if `notification_email` is set)
 
 ## Step 9: Wire up the AWS Partner Central submission half (v2)
 
@@ -355,23 +360,52 @@ If `list-solutions` returns nothing, register one in the Partner Central UI unde
 
 ### 9b. Create the HubSpot developer-platform app
 
-The legacy private-app UI is gone in HubSpot 2025.2+; the new path is the developer-platform projects framework:
+The legacy private-app UI is gone in HubSpot 2025.2+; the new path is the developer-platform projects framework. **Important: the repo already ships a complete `hubspot-app/` project, so you do NOT run `hs project create` — the project file already exists.** You only need to authenticate the HubSpot CLI to your account, then upload:
 
 ```bash
 npm install -g @hubspot/cli
-hs init                   # authenticates against your HubSpot account
+hs init                   # opens a browser, authenticates against your HubSpot account
+hs accounts use <your-portal-name>   # if you authenticated against multiple accounts
 hs project upload         # uploads the bundled hubspot-app/ project
 ```
 
-The project (`hubspot-app/`) is committed to the repo with the right scopes and webhook subscriptions pre-declared (deal-stage, amount, closedate, dealname, govwin_ace_delivery_model, govwin_ace_partner_need). Subscriptions ship inactive; we activate them in step 9d after the API Gateway URL is known.
+`hs init` requires browser-based OAuth and writes the resulting credentials to `~/.hubspot.config.yml`; this will not work in a fully headless environment. The project (`hubspot-app/`) is committed to the repo with the right scopes and webhook subscriptions pre-declared (deal-stage, amount, closedate, dealname, govwin_ace_delivery_model, govwin_ace_partner_need). Subscriptions ship inactive; we activate them in step 9d after the API Gateway URL is known.
 
-After upload, copy the **App ID** and **client secret** from the HubSpot developer portal.
+After upload, the **App ID** and **client secret** are visible in the HubSpot developer portal at:
+
+> **Settings (gear icon) > Integrations > Connected Apps > [your app name] > Auth tab**
+
+The client secret is shown only once; copy it immediately and put it in the next step's Terraform variable.
+
+#### 9b.i Find your HubSpot pipeline stage internal IDs (`ace_trigger_stages`)
+
+Webhooks for ACE submission fire when a HubSpot deal moves to one of the stages listed in `ace_trigger_stages`. HubSpot identifies stages by **numeric internal ID**, not by their visible label. The repo's default value (`submit_to_aws,submitted_to_aws`) is a label-style placeholder so a first-deploy plan/apply succeeds; production must override it with real numeric IDs.
+
+To find them:
+
+```bash
+# Replace <PIPELINE_ID> with your "Government" pipeline ID. Get pipeline IDs from:
+#   curl -s -H "Authorization: Bearer $HUBSPOT_TOKEN" \
+#     https://api.hubapi.com/crm/v3/pipelines/deals | jq '.results[] | {id, label}'
+
+curl -s -H "Authorization: Bearer $HUBSPOT_TOKEN" \
+  https://api.hubapi.com/crm/v3/pipelines/deals/<PIPELINE_ID>/stages \
+  | jq '.results[] | {id: .id, label: .label}'
+```
+
+The `id` is what you want; it looks like `3590200042`. Pick the stage that BD will move deals to when they're ready to submit (typically labeled "Submit to AWS" or similar) and any subsequent stages where re-submission should be a no-op (typically "Submitted to AWS"). Set:
+
+```hcl
+ace_trigger_stages = "3590200042,3590200043"
+```
+
+If you skip this step, the webhook receiver will still receive HubSpot events but will never recognize a stage match, and no ACE submission will ever fire. Symptom: `setup_hubspot_webhooks` succeeds, deals appear in HubSpot, but nothing arrives in AWS Partner Central.
 
 ### 9c. Set the v2 Terraform variables
 
 ```hcl
 ace_catalog                   = "Sandbox"             # flip to "AWS" only after sandbox tests pass
-ace_default_solution_id       = "S-0051246"           # from list-solutions output above
+ace_default_solution_id       = "S-1234567"           # from list-solutions output above
 hubspot_webhook_app_id        = "12345678"            # from HubSpot dev portal
 hubspot_webhook_client_secret = "client-secret-from-hubspot"
 ```
@@ -380,7 +414,24 @@ Then re-run `terraform apply`. The output `hubspot_webhook_target_url` is the pu
 
 ### 9d. Activate the webhook subscriptions
 
-Paste the `hubspot_webhook_target_url` value into `hubspot-app/src/app/webhooks/webhooks-hsmeta.json` (replacing the placeholder), flip every `"active": false` to `"active": true`, and re-run:
+You have two equivalent paths. **Option A is recommended** because it keeps the developer-platform manifest the source of truth, can be re-run idempotently, and does not require a manual file edit.
+
+#### Option A: invoke the `setup_hubspot_webhooks` Lambda (recommended)
+
+```bash
+aws lambda invoke \
+  --function-name govwin-hubspot-prod-setup-hubspot-webhooks \
+  --region us-east-1 \
+  --payload '{"action": "activate"}' \
+  --cli-binary-format raw-in-base64-out \
+  /tmp/wh.json && cat /tmp/wh.json
+```
+
+The Lambda reads the `hubspot_webhook_target_url` Terraform output, calls the HubSpot developer-platform API to set every subscription's `targetUrl` and flip `active=true`, and returns a summary. Re-running it is idempotent: subscriptions already active stay active.
+
+#### Option B: edit `webhooks-hsmeta.json` and re-upload
+
+Paste the `hubspot_webhook_target_url` value into `hubspot-app/src/app/webhooks/webhooks-hsmeta.json` (replacing the `<api-id>` placeholder), flip every `"active": false` to `"active": true`, and re-run:
 
 ```bash
 hs project upload
@@ -390,7 +441,7 @@ HubSpot now delivers deal property changes to the API Gateway. The receiver Lamb
 
 ### 9e. Smoke test
 
-Run the sandbox smoke matrix (see [Testing Guide](testing.md#ace-sandbox-smoke-matrix)) before flipping `ace_catalog` to `AWS`. Once green, change to production:
+Run the sandbox smoke matrix (see [Testing in your own AWS account](testing-in-your-account.md#ace-sandbox-smoke-matrix-phase-41)) before flipping `ace_catalog` to `AWS`. Once green, change to production:
 
 ```hcl
 ace_catalog = "AWS"
@@ -419,7 +470,7 @@ This will delete all AWS resources. HubSpot custom properties and deals created 
 
 ## Troubleshooting
 
-### Common Issues
+### Common GovWin / HubSpot issues
 
 | Issue | Cause | Solution |
 |---|---|---|
@@ -427,17 +478,41 @@ This will delete all AWS resources. HubSpot custom properties and deals created 
 | Rate limit errors (403) | Exceeded 4,000 calls/hour | The integration handles this automatically; if persistent, increase `sync_schedule` interval |
 | HubSpot 429 errors | Exceeded 100 req/10s | Built-in backoff handles this; check for other integrations consuming rate limit |
 | Missing deals in HubSpot | Opportunity type filtered out | Check `govwin_opp_types` variable |
-| Step Function timeout | Very large initial sync | Increase `max_concurrency` or run initial sync in stages |
+| Worker batch timeout | Very large initial sync | Increase `worker_concurrency` (Lambda reservedConcurrency) or run initial sync in stages |
 
-### Checking Logs
+### Common AWS Partner Central / webhook issues
+
+| Issue | Cause | Solution |
+|---|---|---|
+| Webhook receiver returns 401 ("invalid signature") | `hubspot_webhook_client_secret` does not match the secret currently set on the developer-platform app, or the request body was modified by a proxy | Re-copy the client secret from the HubSpot developer portal (**Settings > Integrations > Connected Apps > [app] > Auth**) into the Terraform variable, `terraform apply`, and have HubSpot retry. Confirm no API Gateway request transformations are altering the body. |
+| Webhook receiver returns 401 ("expired timestamp") | Clock skew on the sender or replay attempt | HubSpot enforces a 5-minute window per the `X-HubSpot-Request-Timestamp` header. If your traffic is from a real HubSpot delivery and not a replay, this is a HubSpot-side clock issue and resolves itself. |
+| Submission silently never fires | `ace_trigger_stages` does not match the actual numeric stage IDs of your "Submit to AWS" stage | Re-verify with the API call in step 9b.i; replace label-style placeholders with numeric IDs (`3590200042` shape). |
+| `submit_to_ace` returns `ValidationException` | Required ACE field missing or out of range. Common offenders: `Project.Title` length, `Customer.Account.Industry`, `LifeCycle.NextSteps` length, `ExpectedCustomerSpend.Amount` non-positive | Inspect the Lambda log entry; the boto3 error message names the offending field. Fix the source data in HubSpot (BD must update the deal) and re-trigger by toggling the deal stage off and back on. |
+| `submit_to_ace` returns `ConflictException` | Optimistic-locking failure on `UpdateOpportunity` (concurrent edits) | The client's tenacity retry refetches `LastModifiedDate` and retries; if it persists past 5 attempts the message lands in the DLQ. Inspect DynamoDB `ACE#{govwin_id}` to clear stale state if needed. |
+| `submit_to_ace` returns `ResourceNotFoundException` immediately after `CreateOpportunity` | Eventual consistency on the Partner Central side: the `Id` returned by `CreateOpportunity` is not yet readable by `AssociateOpportunity` / `StartEngagementFromOpportunityTask` | The client retries up to 5 times with exponential backoff. If still failing, AWS may be experiencing a regional issue; check the AWS Health dashboard. |
+| `submit_to_ace` returns `ThrottlingException` | Burst above the 1 write/sec quota or 10K writes/24h | The token bucket and tenacity retry handle short bursts. For sustained throttling, reduce SQS `batch_size` or stagger BD's stage transitions. |
+| `setup_hubspot_webhooks` Lambda returns 401 | Stale `hubspot_webhook_client_secret` in Secrets Manager (rotated in HubSpot but not Terraform) | Update `hubspot_webhook_client_secret` in `terraform.tfvars`, `terraform apply`, then re-invoke. |
+| Webhook delivers but `submit_to_ace` never invoked | SQS event-source mapping disabled, or `webhooks-hsmeta.json` still has `active=false` and Option B was used in step 9d | Check the SQS queue's "ApproximateNumberOfMessages" metric. If zero, the webhook receiver isn't enqueueing — verify in CloudWatch logs. If non-zero with no Lambda invocations, re-enable the event-source mapping. If using Option B, re-run `hs project upload` after flipping `active=true`. |
+
+### Checking logs
 
 ```bash
-# List recent Lambda invocations
-aws logs filter-log-events \
-  --log-group-name /aws/lambda/govwin-hubspot-discover-changes \
-  --start-time $(date -d '1 hour ago' +%s000)
+# Tail the orchestrator
+aws logs tail /aws/lambda/govwin-hubspot-prod-govwin-orchestrator --follow
 
-# Check Step Function execution
-aws stepfunctions describe-execution \
-  --execution-arn <execution-arn>
+# Tail the worker
+aws logs tail /aws/lambda/govwin-hubspot-prod-govwin-worker --follow
+
+# Tail the webhook receiver
+aws logs tail /aws/lambda/govwin-hubspot-prod-hubspot-webhook-receiver --follow
+
+# Tail the ACE submitter
+aws logs tail /aws/lambda/govwin-hubspot-prod-submit-to-ace --follow
+
+# DLQ depth (look here first when an event "disappears")
+aws sqs get-queue-attributes \
+  --queue-url $(terraform -chdir=terraform output -raw dlq_url) \
+  --attribute-names ApproximateNumberOfMessages
 ```
+
+For deeper operational guidance (alarm names, stuck-deal recovery, fault-injection), see [docs/operations.md](operations.md).

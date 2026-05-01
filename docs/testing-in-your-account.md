@@ -234,11 +234,116 @@ If your volume is materially higher (say, 50+ opportunities synced per orchestra
 - **Look at X-Ray**: every Lambda has X-Ray Active tracing on. The Service Map shows the full GovWin -> SQS -> Worker -> HubSpot -> Webhook -> SQS -> ACE -> EventBridge chain end to end.
 - **Look at CloudWatch logs**: each Lambda has a dedicated log group at `/aws/lambda/govwin-hubspot-prod-<function-name>` with retention 30 days.
 
+## Test layers and how to run each
+
+The full test pyramid has four layers:
+
+1. **Hermetic unit tests** (no network, no AWS, no GovWin/HubSpot): `make test`. 293 tests across models, mappers, dedup, rate limiters, both API clients, the orchestrator, and every Lambda handler. Should run in under a minute.
+2. **Static checks**: `make lint` (ruff), `make typecheck` (mypy with the pydantic plugin enabled). CI runs both on every push.
+3. **LocalStack integration tests**: `make local-up && make local-test && make local-down`. The 6 tests in `tests/integration/test_localstack_state.py` exercise the DynamoDB state manager and Secrets Manager paths against a real boto3 client talking to LocalStack 3.8 (community-licensed; no paid token required). They auto-skip when `AWS_ENDPOINT_URL` is not set so `make test` stays hermetic.
+4. **Pre-deployment validation** (real but read-only credentials): `cp .env.example .env && make validate`. The script exchanges your GovWin credentials for an OAuth token, calls `/opportunities?max=1` and HubSpot `/crm/v3/objects/deals?limit=1`, and confirms the configured AWS profile can reach Secrets Manager. Use `--skip-hubspot` or `--skip-govwin` if you only have one set of credentials at hand.
+5. **Dry run** (real GovWin reads, no HubSpot writes): `make dry-run` runs `scripts/dry_run.py --limit 5` against real GovWin data, fetches up to N opportunities, runs them through the mapper, and prints the resulting payload without writing anything. Use this after `make validate` and before the first real sync.
+6. **Sandbox smoke matrix**: see Step 5 above; runs against your deployed Sandbox catalog.
+7. **End-to-end production smoke** (Step 6 above) plus the 10-scenario GovWin -> HubSpot matrix below: a one-time human-driven check after deploying.
+
+## End-to-end GovWin -> HubSpot smoke matrix
+
+Run by the integration owner (typically your BD lead) once the pipeline is live. These tests cannot be automated because they require interactive marking/unmarking inside GovWin IQ and visual inspection inside HubSpot.
+
+| # | Scenario | What to do | What to verify |
+|---|---|---|---|
+| 1 | OPP type | Mark a tracked-opportunity (`OPP*`) for Web Services Download. Trigger sync. | Deal appears in the Government pipeline with NAICS, agency, contacts populated. |
+| 2 | BID type | Mark a `BID*` opportunity. Trigger sync. | Deal appears, no validation errors in CloudWatch. |
+| 3 | TNS type | Mark a `TNS*` opportunity. Trigger sync. | Deal appears, deal stage maps correctly from GovWin status. |
+| 4 | FBO type | Mark a `FBO*` opportunity. Trigger sync. | Deal appears, `govwin_source_url` populated with sam.gov link. |
+| 5 | OPN type | Mark an `OPN*` (APFS) opportunity. Trigger sync. | Deal appears, `govwin_smart_tags` populated even when GovWin returns it as a plain string. |
+| 6 | TOP type | Mark a `TOP*` (task-order) opportunity. Trigger sync. | Deal appears with task-order specific fields. |
+| 7 | Update flow | Edit a previously-synced opp's status in GovWin. Trigger sync. | Same HubSpot deal id is updated; **no duplicate** is created. |
+| 8 | Unmark behavior | Unmark a previously-synced opp. Trigger sync. | The HubSpot deal is **retained** untouched (intentional behavior so manual edits survive). |
+| 9 | Re-mark | Re-mark the unmarked opp from #8. Trigger sync. | Same deal is updated, no duplicate appears. |
+| 10 | DLQ replay | Temporarily revoke a credential, trigger sync, restore. | Failure lands in `*-dlq` SQS queue with sanitized JSON; an alert is sent via SNS; restoring credentials clears the next run. |
+
+## ACE sandbox smoke matrix (Phase 4.1)
+
+Run before flipping `ace_catalog` from `Sandbox` to `AWS`. Each test is scriptable and self-cleans by archiving the sandbox opportunities afterward. `scripts/sandbox_smoke.py` automates scenarios 1-10; scenario 11 is the manual one-shot in Step 6 above.
+
+| # | Scenario | Method |
+|---|---|---|
+| 1 | `CreateOpportunity` in Sandbox | Direct boto3 call from a script; verify the response contains `Id` and `LastModifiedDate` |
+| 2 | `AssociateOpportunity` with the configured Solution | Use the first item from `aws partnercentral-selling list-solutions --catalog Sandbox` |
+| 3 | `StartEngagementFromOpportunityTask` | Verify the task transitions IN_PROGRESS -> COMPLETE |
+| 4 | `UpdateOpportunity` with optimistic locking | Update twice in sequence; second call uses the fresh `LastModifiedDate` from the first response |
+| 5 | `UpdateOpportunity` with stale lock (negative test) | Force a `ConflictException` by passing the previous `LastModifiedDate`; verify our retry logic refetches and succeeds |
+| 6 | EventBridge `Opportunity Updated` | Modify the sandbox opp; verify `handle_ace_event` fires and the HubSpot deal stage updates |
+| 7 | EventBridge `Engagement Invitation Accepted` | Accept the invitation in sandbox; verify HubSpot stage moves to `approved_by_aws` |
+| 8 | EventBridge `Engagement Invitation Rejected` | Reject the invitation; verify HubSpot stage moves to `closedlost` |
+| 9 | HubSpot webhook signature validation (positive) | Trigger a real deal-stage change in HubSpot; verify the receiver returns 200 and the SQS submit queue gets a message |
+| 10 | HubSpot webhook signature validation (negative) | Send a forged `X-HubSpot-Signature-v3` header to the API Gateway URL; verify 401 |
+| 11 | End-to-end: GovWin marked -> HubSpot synced -> BD edits -> stage transition -> ACE submission | Full pipeline against the Sandbox catalog; verify the AWS Partner Central UI shows the opportunity with correct fields |
+
+### Sandbox findings (from the maintainer's initial rollout)
+
+These observations from the first end-to-end smoke run are baked into the mapper and the smoke script. They're recorded here so a downstream reader knows what AWS validation idiosyncrasies the integration is already handling, and what to expect if AWS changes them:
+
+- `Customer.Account.CountryCode` is nested under `Address`, not flat on `Account`.
+- `Customer.Account.WebsiteUrl`, `Address.PostalCode`, and `Address.StateOrRegion` are required by Sandbox business validation.
+- `StateOrRegion` uses an enum of full state names ("Dist. of Columbia"), not 2-letter abbreviations. The mapper now normalizes via a `_STATE_ABBR_TO_FULL` lookup.
+- `Project.CustomerUseCase` is an AWS-published enum (38 service categories), not a free-text field. The mapper enforces a published default and a HubSpot override property `govwin_ace_use_case`.
+- `Project.CustomerBusinessProblem` requires 20-2000 characters; deals with very short descriptions get padded with the title.
+- `Origin = "AWS Referral"` puts opportunities in the incoming-referral inbox (not visible to GetOpportunity until accepted). Always use `"Partner Referral"` when we are originating.
+- `LifeCycle.Stage = "Closed Lost"` cannot be set while `LifeCycle.ReviewStatus = "Pending Submission"`. Cleanup is best-effort; sandbox state is auto-purged.
+- AWS `UpdateOpportunity` is **PUT, not PATCH**. Omitted fields are treated as cleared. The production `update_in_ace.py` and the smoke script both fetch the current opportunity, whitelist to the Update input schema (`PrimaryNeedsFromAws`, `NationalSecurity`, `Customer`, `Project`, `OpportunityType`, `Marketing`, `SoftwareRevenue`, `LifeCycle`), apply the delta, and send the full payload. `ACEClient.scrub_for_update` is the helper.
+- AWS Partner Central is eventually consistent: `GetOpportunity` immediately after `CreateOpportunity` can return `ResourceNotFoundException` for several seconds. The script retries with backoff (5s, 10s, 15s, 20s, 25s, 30s).
+
+## Reference: results from the maintainer's initial production rollout
+
+These numbers reflect what "passing" looks like for an established federal AWS partner running this against a real GovWin tenant and a real HubSpot account. Your numbers will differ; what matters is that the test categories all show PASS.
+
+### Sync tests
+
+| # | Test | Result | Notes |
+|---|---|---|---|
+| 1 | GovWin OAuth2 authentication | PASS | Token obtained, 12hr expiry |
+| 2 | Marked-for-sync discovery | PASS | 8 marked opps found via markedVersion=2.2 |
+| 3 | OPP opportunity type | PASS | 5 tracked opps synced |
+| 4 | OPN opportunity type | PASS | 2 APFS procurement notices synced |
+| 5 | Federal agencies (DHS, GSA, DOD, HHS, DOE) | PASS | All created as HubSpot companies |
+| 6 | State/local agencies (CA, MN) | PASS | SLED opps handled correctly |
+| 7 | Pre-RFP status | PASS | Mapped to "Opportunity Identified" stage |
+| 8 | Source Selection status | PASS | Mapped to "Submitted" stage |
+| 9 | Forecast Pre-RFP status | PASS | Mapped to "Opportunity Identified" stage |
+| 10 | $0 value deals | PASS | Amount field empty, no errors |
+| 11 | Large value deals ($178M) | PASS | Correct dollar conversion |
+| 12 | Deal-to-company associations | PASS | All deals linked to their agency |
+| 13 | Deal-to-contact associations | PASS | 18 associations created across 8 deals |
+| 14 | HubSpot custom properties | PASS | 30 deal, 5 company, 3 contact properties |
+| 15 | Government pipeline stage mapping | PASS | Existing "Government" pipeline used |
+
+### Dedup and incremental sync
+
+| # | Test | Result | Notes |
+|---|---|---|---|
+| 16 | Incremental skip (no changes) | PASS | 0 opps synced, 1 API call |
+| 17 | Repeat incremental skip | PASS | Confirmed idempotent on second run |
+| 18 | Company dedup across opps | PASS | 3 GSA opps share 1 company record |
+| 19 | Contact dedup across opps | PASS | 10 unique contacts, 0 duplicates |
+
+### Infrastructure
+
+| # | Test | Result | Notes |
+|---|---|---|---|
+| 20 | EventBridge schedule | PASS | rate(1 hour), ENABLED |
+| 21 | SNS notifications | PASS | Email subscription confirmed |
+| 22 | SQS dead letter queue | PASS | 0 messages (no unhandled errors) |
+| 23 | 10 consecutive executions | PASS | All SUCCEEDED |
+| 24 | API call efficiency | PASS | 1 call for "no changes" check |
+| 25 | ARM64 (Graviton2) Lambda | PASS | All Lambdas on arm64 |
+
 ## Reference docs
 
 - `docs/architecture.md`: pipeline diagrams, DynamoDB schema, rate-limit strategy.
 - `docs/phase4-runbook.md`: the original 11-scenario smoke matrix and Phase 4.2 production smoke.
-- `docs/testing.md`: complete test inventory plus sandbox-status table.
+- `docs/operations.md`: alarms, stuck-deal recovery, fault-injection, DR notes.
 - `docs/reference/aws-partner-central/`: API references, EventBridge event types, sandbox notes.
 - `docs/reference/hubspot/private-app-webhooks.md`: HubSpot signature validation deep dive.
 - `terraform/bootstrap/README.md`: bootstrap operator vs. deployer role split, MFA gate rationale.

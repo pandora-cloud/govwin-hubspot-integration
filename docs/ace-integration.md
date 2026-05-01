@@ -27,7 +27,7 @@ After submission, the opportunity is locked from edits while AWS reviews. EventB
 
 ### 1. Opportunity syncs from GovWin
 
-The hourly Step Function picks up marked opportunities and writes them into HubSpot. The deal lands in the **Government** pipeline with 25+ properties pre-populated, including 9 of the 12 fields ACE requires.
+The hourly orchestrator Lambda (triggered by EventBridge Scheduler) picks up marked opportunities and fans batches out to the worker via SQS. The worker writes them into HubSpot. The deal lands in the **Government** pipeline with 25+ properties pre-populated, including 9 of the 12 fields ACE requires.
 
 ### 2. BD reviews the deal and fills three manual fields
 
@@ -112,7 +112,7 @@ ace_catalog = "AWS"
 
 The IAM policy is the real safety net: when `ace_catalog = Sandbox`, the policy is conditional on `partnercentral:Catalog: Sandbox`, so even if code accidentally passes `Catalog: "AWS"`, the API rejects with `AccessDeniedException`.
 
-The Sandbox catalog mirrors production validation but is isolated. Run the sandbox smoke matrix (see [Testing Guide](testing.md#ace-sandbox-smoke-matrix)) before flipping.
+The Sandbox catalog mirrors production validation but is isolated. Run the sandbox smoke matrix (see [Testing in your own AWS account](testing-in-your-account.md#ace-sandbox-smoke-matrix-phase-41)) before flipping.
 
 ## Field mapping: GovWin -> HubSpot -> ACE
 

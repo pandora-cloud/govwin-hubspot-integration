@@ -174,7 +174,7 @@
         <mxCell id="ace_api_detail" value="&lt;font color=&quot;#666666&quot; style=&quot;font-size: 10px;&quot;&gt;partnercentral-selling&lt;br&gt;us-east-1, IAM SigV4&lt;br&gt;1 write/sec, 10 reads/sec&lt;br&gt;Catalog: Sandbox or AWS&lt;br&gt;(IAM gates Sandbox-only)&lt;/font&gt;" style="text;html=1;align=center;verticalAlign=middle;resizable=0;points=[];autosize=1;strokeColor=none;fillColor=none;" parent="1" vertex="1">
           <mxGeometry x="918" y="220" width="180" height="100" as="geometry" />
         </mxCell>
-        <mxCell id="ace_solution" value="&lt;font color=&quot;#666666&quot; style=&quot;font-size: 10px;&quot;&gt;Solution: S-0051246&lt;br&gt;(Pandora Cloud Pro Services)&lt;/font&gt;" style="text;html=1;align=center;verticalAlign=middle;resizable=0;points=[];autosize=1;strokeColor=none;fillColor=none;" parent="1" vertex="1">
+        <mxCell id="ace_solution" value="&lt;font color=&quot;#666666&quot; style=&quot;font-size: 10px;&quot;&gt;Solution: S-1234567&lt;br&gt;(Partner solution)&lt;/font&gt;" style="text;html=1;align=center;verticalAlign=middle;resizable=0;points=[];autosize=1;strokeColor=none;fillColor=none;" parent="1" vertex="1">
           <mxGeometry x="918" y="345" width="180" height="35" as="geometry" />
         </mxCell>
         <mxCell id="ace_inv_type" value="&lt;font color=&quot;#666666&quot; style=&quot;font-size: 10px;&quot;&gt;InvolvementType: Co-Sell&lt;br&gt;Visibility: Full&lt;/font&gt;" style="text;html=1;align=center;verticalAlign=middle;resizable=0;points=[];autosize=1;strokeColor=none;fillColor=none;" parent="1" vertex="1">

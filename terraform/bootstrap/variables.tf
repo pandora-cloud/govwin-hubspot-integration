@@ -73,7 +73,7 @@ variable "acknowledge_no_mfa_justification" {
     on the deployer role so audit tooling (Config rules, CloudTrail Lake)
     can surface why MFA was disabled. Required when
     acknowledge_no_mfa_for_sandbox_only is true. Example:
-    "Sandbox account 555049241846 - pre-production smoke testing only;
+    "Sandbox account 123456789012 - pre-production smoke testing only;
     no AWS catalog data; MFA enforced post 2026-06-01."
   EOT
   type        = string
