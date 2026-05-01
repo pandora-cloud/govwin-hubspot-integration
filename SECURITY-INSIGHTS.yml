@@ -3,30 +3,31 @@ header:
   expiration-date: "2027-05-01T00:00:00.000Z"
   last-updated: "2026-05-01"
   last-reviewed: "2026-05-01"
-  project-url: https://github.com/pandora-cloud-llc/govwin-hubspot-integration
-  changelog: https://github.com/pandora-cloud-llc/govwin-hubspot-integration/blob/main/CHANGELOG.md
-  license: https://github.com/pandora-cloud-llc/govwin-hubspot-integration/blob/main/LICENSE
+  project-url: https://github.com/pandora-cloud/govwin-hubspot-integration
+  changelog: https://github.com/pandora-cloud/govwin-hubspot-integration/blob/main/CHANGELOG.md
+  license: https://github.com/pandora-cloud/govwin-hubspot-integration/blob/main/LICENSE
 
 project-lifecycle:
   status: active
-  roadmap: https://github.com/pandora-cloud-llc/govwin-hubspot-integration/blob/main/ROADMAP.md
+  roadmap: https://github.com/pandora-cloud/govwin-hubspot-integration/blob/main/ROADMAP.md
   bug-fixes-only: false
   core-maintainers:
-    - https://github.com/ilawson-pandora
+    - https://github.com/isi-pandora
+    - https://github.com/kim-pandora
 
 contribution-policy:
   accepts-pull-requests: true
   accepts-automated-pull-requests: true
-  contributing-policy: https://github.com/pandora-cloud-llc/govwin-hubspot-integration/blob/main/CONTRIBUTING.md
-  code-of-conduct: https://github.com/pandora-cloud-llc/govwin-hubspot-integration/blob/main/CODE_OF_CONDUCT.md
+  contributing-policy: https://github.com/pandora-cloud/govwin-hubspot-integration/blob/main/CONTRIBUTING.md
+  code-of-conduct: https://github.com/pandora-cloud/govwin-hubspot-integration/blob/main/CODE_OF_CONDUCT.md
 
 documentation:
-  - https://github.com/pandora-cloud-llc/govwin-hubspot-integration/blob/main/README.md
-  - https://github.com/pandora-cloud-llc/govwin-hubspot-integration/blob/main/docs/architecture.md
-  - https://github.com/pandora-cloud-llc/govwin-hubspot-integration/blob/main/docs/deployment-guide.md
+  - https://github.com/pandora-cloud/govwin-hubspot-integration/blob/main/README.md
+  - https://github.com/pandora-cloud/govwin-hubspot-integration/blob/main/docs/architecture.md
+  - https://github.com/pandora-cloud/govwin-hubspot-integration/blob/main/docs/deployment-guide.md
 
 distribution-points:
-  - https://github.com/pandora-cloud-llc/govwin-hubspot-integration
+  - https://github.com/pandora-cloud/govwin-hubspot-integration
 
 security-artifacts:
   threat-model:
@@ -77,7 +78,7 @@ security-contacts:
 vulnerability-reporting:
   accepts-vulnerability-reports: true
   email-contact: pc@pandoracloud.net
-  security-policy: https://github.com/pandora-cloud-llc/govwin-hubspot-integration/blob/main/SECURITY.md
+  security-policy: https://github.com/pandora-cloud/govwin-hubspot-integration/blob/main/SECURITY.md
   bug-bounty-available: false
   in-scope:
     - "code in src/, terraform/, hubspot-app/, scripts/"
@@ -91,13 +92,13 @@ vulnerability-reporting:
 dependencies:
   third-party-packages: true
   dependencies-lists:
-    - https://github.com/pandora-cloud-llc/govwin-hubspot-integration/blob/main/requirements.lock
+    - https://github.com/pandora-cloud/govwin-hubspot-integration/blob/main/requirements.lock
   sbom:
-    - sbom-file: https://github.com/pandora-cloud-llc/govwin-hubspot-integration/releases/latest/download/sbom-python.cdx.json
+    - sbom-file: https://github.com/pandora-cloud/govwin-hubspot-integration/releases/latest/download/sbom-python.cdx.json
       sbom-format: CycloneDX
-      sbom-url: https://github.com/pandora-cloud-llc/govwin-hubspot-integration/releases
+      sbom-url: https://github.com/pandora-cloud/govwin-hubspot-integration/releases
   dependencies-lifecycle:
-    policy-url: https://github.com/pandora-cloud-llc/govwin-hubspot-integration/blob/main/SECURITY.md
+    policy-url: https://github.com/pandora-cloud/govwin-hubspot-integration/blob/main/SECURITY.md
     comment: Renovate weekly; security patches auto-merged when available.
   env-dependencies-policy:
-    policy-url: https://github.com/pandora-cloud-llc/govwin-hubspot-integration/blob/main/SECURITY.md
+    policy-url: https://github.com/pandora-cloud/govwin-hubspot-integration/blob/main/SECURITY.md

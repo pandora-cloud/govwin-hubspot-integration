@@ -1,6 +1,6 @@
 # Contributing
 
-Thanks for considering a contribution. This project is an open-source pipeline from Deltek GovWin IQ to AWS Partner Central via HubSpot CRM, maintained by Pandora Cloud LLC.
+Thanks for considering a contribution. This project is an open-source pipeline from Deltek GovWin IQ to AWS Partner Central via HubSpot CRM, maintained by [Pandora Cloud](https://pandoracloud.net).
 
 ## Ways to contribute
 

@@ -1,12 +1,13 @@
 # Maintainers
 
-This project is maintained by [Pandora Cloud LLC](https://pandoracloud.net), a Woman-Owned Small Business (WOSB), AWS Advanced Tier Partner, and federal contractor.
+This project is maintained by [Pandora Cloud](https://pandoracloud.net), a Woman-Owned Small Business (WOSB), AWS Advanced Tier Partner, and federal contractor.
 
 ## Current maintainers
 
-| Name | GitHub | Areas | Time zone |
-|---|---|---|---|
-| Isi Lawson | @ilawson-pandora | All; CTO and primary maintainer | US Eastern |
+| Name | GitHub | GitLab | Areas | Time zone |
+|---|---|---|---|---|
+| Isi Lawson | @isi-pandora | @isi-pandora | All; CTO and primary maintainer | US Eastern |
+| Kim | @kim-pandora | @kim-pandora | Maintainer | US Eastern |
 
 ## Response expectations
 

@@ -6,10 +6,10 @@ This project is open-source software with community-and-paid support. Use the ri
 
 | What | Where | When to use |
 |---|---|---|
-| Usage questions, deployment help, "how do I…" | [GitHub Discussions](https://github.com/pandora-cloud-llc/govwin-hubspot-integration/discussions) | Default starting point for any question that isn't a confirmed bug or a security issue. |
-| Confirmed bugs | [GitHub Issues](https://github.com/pandora-cloud-llc/govwin-hubspot-integration/issues) | You can reproduce a defined defect. Include redacted logs and steps. |
-| Feature requests | [GitHub Issues](https://github.com/pandora-cloud-llc/govwin-hubspot-integration/issues) | The feature serves federal AWS partners running this pipeline. |
-| Security disclosures | [Private security advisory](https://github.com/pandora-cloud-llc/govwin-hubspot-integration/security/advisories/new) or `pc@pandoracloud.net` | Credentials, vulnerabilities, ACE submission integrity, supply-chain concerns. **Never** open a public issue. See [SECURITY.md](SECURITY.md). |
+| Usage questions, deployment help, "how do I…" | [GitHub Discussions](https://github.com/pandora-cloud/govwin-hubspot-integration/discussions) | Default starting point for any question that isn't a confirmed bug or a security issue. |
+| Confirmed bugs | [GitHub Issues](https://github.com/pandora-cloud/govwin-hubspot-integration/issues) | You can reproduce a defined defect. Include redacted logs and steps. |
+| Feature requests | [GitHub Issues](https://github.com/pandora-cloud/govwin-hubspot-integration/issues) | The feature serves federal AWS partners running this pipeline. |
+| Security disclosures | [Private security advisory](https://github.com/pandora-cloud/govwin-hubspot-integration/security/advisories/new) or `pc@pandoracloud.net` | Credentials, vulnerabilities, ACE submission integrity, supply-chain concerns. **Never** open a public issue. See [SECURITY.md](SECURITY.md). |
 
 Response time for community support is best-effort. Expectations:
 
