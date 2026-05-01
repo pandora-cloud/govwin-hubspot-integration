@@ -1,6 +1,6 @@
 # Security policy
 
-Pandora Cloud LLC takes security seriously. This project handles credentials for three external systems (Deltek GovWin IQ, HubSpot, AWS Partner Central) and routes federal contracting opportunity data, so secure-by-default is a baseline expectation.
+Pandora Cloud takes security seriously. This project handles credentials for three external systems (Deltek GovWin IQ, HubSpot, AWS Partner Central) and routes federal contracting opportunity data, so secure-by-default is a baseline expectation.
 
 ## Supported versions
 
@@ -14,9 +14,9 @@ Pandora Cloud LLC takes security seriously. This project handles credentials for
 
 **Do not open a public GitHub issue for security reports.** Use one of these channels instead, in order of preference:
 
-1. **GitHub private security advisory** (preferred). [Open one here](https://github.com/pandora-cloud-llc/govwin-hubspot-integration/security/advisories/new). This routes to the maintainers without becoming public.
+1. **GitHub private security advisory** (preferred). [Open one here](https://github.com/pandora-cloud/govwin-hubspot-integration/security/advisories/new). This routes to the maintainers without becoming public.
 2. **Encrypted email** to <pc@pandoracloud.net>. Encrypt with our PGP public key:
-   - Fingerprint: `<TO BE FILLED IN AFTER FIRST KEY GENERATION>`
+   - Fingerprint: `59B2414BE40D2BC8F1A67745D1165A8FF46CC177`
    - Public key: `.well-known/security/pandora-cloud-public.asc` in this repo, also published to `keys.openpgp.org`.
 3. **Plain-text email** to <pc@pandoracloud.net> if encryption is impractical. We will accept the report but will respond using PGP if your message did not include your own public key.
 

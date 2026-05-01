@@ -73,7 +73,7 @@ Future entries are generated automatically by [release-please](https://github.co
 - Dry-run script (`scripts/dry_run.py`).
 - LocalStack integration test suite.
 
-[Unreleased]: https://github.com/pandora-cloud-llc/govwin-hubspot-integration/compare/v2.1.0...HEAD
-[v2.1.0]: https://github.com/pandora-cloud-llc/govwin-hubspot-integration/compare/v2.0.0...v2.1.0
-[v2.0.0]: https://github.com/pandora-cloud-llc/govwin-hubspot-integration/compare/v1.0.0...v2.0.0
-[v1.0.0]: https://github.com/pandora-cloud-llc/govwin-hubspot-integration/releases/tag/v1.0.0
+[Unreleased]: https://github.com/pandora-cloud/govwin-hubspot-integration/compare/v2.1.0...HEAD
+[v2.1.0]: https://github.com/pandora-cloud/govwin-hubspot-integration/compare/v2.0.0...v2.1.0
+[v2.0.0]: https://github.com/pandora-cloud/govwin-hubspot-integration/compare/v1.0.0...v2.0.0
+[v1.0.0]: https://github.com/pandora-cloud/govwin-hubspot-integration/releases/tag/v1.0.0

@@ -1,7 +1,7 @@
 # GovWin to AWS Partner Central, end-to-end and open-source
 
-[![CI](https://github.com/pandora-cloud-llc/govwin-hubspot-integration/actions/workflows/ci.yml/badge.svg)](https://github.com/pandora-cloud-llc/govwin-hubspot-integration/actions/workflows/ci.yml)
-[![CodeQL](https://github.com/pandora-cloud-llc/govwin-hubspot-integration/actions/workflows/codeql.yml/badge.svg)](https://github.com/pandora-cloud-llc/govwin-hubspot-integration/actions/workflows/codeql.yml)
+[![CI](https://github.com/pandora-cloud/govwin-hubspot-integration/actions/workflows/ci.yml/badge.svg)](https://github.com/pandora-cloud/govwin-hubspot-integration/actions/workflows/ci.yml)
+[![CodeQL](https://github.com/pandora-cloud/govwin-hubspot-integration/actions/workflows/codeql.yml/badge.svg)](https://github.com/pandora-cloud/govwin-hubspot-integration/actions/workflows/codeql.yml)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](LICENSE)
 [![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)](https://www.python.org/downloads/release/python-3120/)
 [![Terraform >= 1.11](https://img.shields.io/badge/terraform-%3E%3D1.11-7B42BC.svg)](https://developer.hashicorp.com/terraform)
@@ -111,7 +111,7 @@ For the full end-to-end ACE submission workflow, see the [ACE Integration Guide]
 ### 1. Clone the repository
 
 ```bash
-git clone https://github.com/pandora-cloud-llc/govwin-hubspot-integration.git
+git clone https://github.com/pandora-cloud/govwin-hubspot-integration.git
 cd govwin-hubspot-integration
 ```
 
@@ -438,8 +438,8 @@ Today this won't work end-to-end because AWS does not expose `partnercentral-sel
 No. The project's identity is the GovWin -> HubSpot -> AWS Partner Central triad. Forks with adapters for other CRMs are welcome but won't be merged upstream. See [CONTRIBUTING.md](CONTRIBUTING.md#what-we-will-likely-not-merge).
 
 **Where do I report security issues?**
-[GitHub private security advisories](https://github.com/pandora-cloud-llc/govwin-hubspot-integration/security/advisories/new) or email <pc@pandoracloud.net> (PGP key in [.well-known/security/](.well-known/security/)). Do not open a public issue. SLAs in [SECURITY.md](SECURITY.md).
+[GitHub private security advisories](https://github.com/pandora-cloud/govwin-hubspot-integration/security/advisories/new) or email <pc@pandoracloud.net> (PGP key in [.well-known/security/](.well-known/security/)). Do not open a public issue. SLAs in [SECURITY.md](SECURITY.md).
 
 ## License
 
-Apache License, Version 2.0. Copyright 2026 [Pandora Cloud LLC](https://pandoracloud.net). See [LICENSE](LICENSE) for the full text and the patent grant terms.
+Apache License, Version 2.0. Copyright 2026 [Pandora Cloud](https://pandoracloud.net). See [LICENSE](LICENSE) for the full text and the patent grant terms.
