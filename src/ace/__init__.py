@@ -1,6 +1,6 @@
 """AWS Partner Central (ACE) Selling API integration.
 
-Replaces the SaaSify ACE Connector with direct calls to
+Direct AWS Partner Central Selling-API integration. Calls
 ``partnercentral-selling`` (region us-east-1, IAM SigV4 auth). The submission
 flow is three calls: ``CreateOpportunity`` -> ``AssociateOpportunity`` ->
 ``StartEngagementFromOpportunityTask``.

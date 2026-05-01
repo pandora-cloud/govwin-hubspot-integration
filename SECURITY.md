@@ -7,7 +7,7 @@ Pandora Cloud LLC takes security seriously. This project handles credentials for
 | Version | Supported |
 |---|---|
 | v2.x (end-to-end with direct AWS Partner Central API) | Yes |
-| v1.x (GovWin to HubSpot only, SaaSify required for ACE) | Security fixes only |
+| v1.x (GovWin to HubSpot only; ACE submission added in v2) | Security fixes only |
 | < v1.0 | No |
 
 ## Reporting a vulnerability

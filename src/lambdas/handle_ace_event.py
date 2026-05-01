@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from typing import Any
 
 from src.ace.client import ACEAPIError, ACEClient
@@ -35,6 +36,11 @@ logger.setLevel(os.environ.get("LOG_LEVEL", "INFO"))
 # labels listed here need to exist in the configured pipeline. Statuses
 # not in the map are intentionally ignored (e.g. 'Pending Submission'
 # fires on every CreateOpportunity but doesn't move the deal stage).
+# AWS Partner Central opportunity-id format (O followed by digits / dashes).
+# Defense-in-depth on the EventBridge -> HubSpot write-back path.
+_AWS_OPP_ID_PATTERN = re.compile(r"^O[A-Z0-9-]{1,99}$")
+
+
 _DEALSTAGE_BY_AWS_REVIEW: dict[str, str] = {
     "Submitted": "Submitted to AWS",
     "In review": "Under AWS Review",
@@ -109,37 +115,67 @@ def _handle_opportunity_event(
 
     review_status = str((full.get("LifeCycle") or {}).get("ReviewStatus") or "")
 
-    # Write-back to HubSpot deal properties so BD sees AWS-side state
-    # without leaving HubSpot. SaaSify parity: aws_cosell_id, aws_cosell_status,
-    # aws_marketplace_engagement_score. Always attempted (even when the
-    # ReviewStatus doesn't drive a dealstage change), but defensive against
-    # archived deals so it doesn't 404 alarm the on-call.
+    # One archive check up front; both write-back and stage update consume
+    # the cached result. Treats transient HubSpot errors as "fail closed":
+    # if we cannot determine the archive state, skip both writes rather
+    # than risk overwriting an archived record (which would cause a
+    # spurious 404 alert) or skip a real stage update.
     try:
-        if not hubspot.is_deal_archived(str(deal_id)):
-            engagement_score = (
-                full.get("AwsOpportunitySummary") or {}
-            ).get("MarketplaceEngagementScore")
-            writeback: dict[str, Any] = {
-                "govwin_aws_cosell_id": str(full.get("Id") or ""),
-                "govwin_aws_cosell_status": review_status,
-            }
-            if engagement_score is not None:
-                writeback["govwin_aws_marketplace_engagement_score"] = str(
-                    engagement_score
-                )
-            hubspot.update_deal(str(deal_id), writeback)
-    except Exception:  # noqa: BLE001 -- write-back is best-effort
+        deal_archived = hubspot.is_deal_archived(str(deal_id))
+    except Exception:  # noqa: BLE001 -- defensive
         logger.exception(
-            "handle_ace_event: AWS write-back failed for deal %s", deal_id
+            "handle_ace_event: is_deal_archived failed for %s; failing closed",
+            deal_id,
         )
+        return {"status": "skipped", "reason": "archive check failed"}
+    if deal_archived:
+        return {"status": "skipped", "reason": "deal archived in HubSpot"}
+
+    # Build the unified write-back: cosell id / status / score (always)
+    # plus dealstage (when the ReviewStatus maps to a known stage label).
+    # One PATCH per event is half the API budget and atomic from
+    # HubSpot's perspective.
+    aws_id_value = str(full.get("Id") or "")[:100]
+    if aws_id_value and not _AWS_OPP_ID_PATTERN.match(aws_id_value):
+        # Defense-in-depth: AWS shouldn't return a malformed Id, but bound
+        # the write-back to the documented opportunity-id shape so a
+        # contract drift can't write garbage to the HubSpot deal property.
+        logger.warning(
+            "handle_ace_event: AWS returned non-canonical Id %r; not writing",
+            aws_id_value,
+        )
+        aws_id_value = ""
+
+    writeback: dict[str, Any] = {}
+    if aws_id_value:
+        writeback["govwin_aws_cosell_id"] = aws_id_value
+    if review_status:
+        writeback["govwin_aws_cosell_status"] = review_status[:80]
+    engagement_score = (full.get("AwsOpportunitySummary") or {}).get(
+        "MarketplaceEngagementScore"
+    )
+    if engagement_score is not None:
+        writeback["govwin_aws_marketplace_engagement_score"] = str(
+            engagement_score
+        )[:50]
 
     target_stage = _DEALSTAGE_BY_AWS_REVIEW.get(review_status)
+    stage_label_id: str | None = None
+    if target_stage:
+        stage_label_id = hubspot.get_stage_id_by_label(target_stage)
+        if stage_label_id:
+            writeback["dealstage"] = stage_label_id
+
+    if writeback:
+        try:
+            hubspot.update_deal(str(deal_id), writeback)
+        except Exception:  # noqa: BLE001 -- write-back is best-effort
+            logger.exception(
+                "handle_ace_event: write-back PATCH failed for deal %s",
+                deal_id,
+            )
+
     if not target_stage:
-        # "Pending Submission" fires on every CreateOpportunity (and on the
-        # implicit Opportunity Created event AWS emits). It is intentionally
-        # not mapped because we don't want every create to thrash the
-        # HubSpot dealstage. Distinguish that expected case in the log so
-        # an operator scanning CloudWatch doesn't read it as a failure.
         if review_status == "Pending Submission":
             return {
                 "status": "no-op",
@@ -149,9 +185,8 @@ def _handle_opportunity_event(
             "status": "skipped",
             "reason": f"no HubSpot stage label maps to ReviewStatus={review_status!r}",
         }
-    success, reason = _update_hubspot_stage(hubspot, str(deal_id), target_stage)
-    if not success:
-        return {"status": "skipped", "reason": reason or "stage update no-op"}
+    if not stage_label_id:
+        return {"status": "skipped", "reason": "stage label not in pipeline"}
 
     last_modified = full.get("LastModifiedDate")
     state.update_ace_mapping(
@@ -161,6 +196,41 @@ def _handle_opportunity_event(
     return {"status": "updated", "deal_id": deal_id, "stage": target_stage}
 
 
+# Domains we trust to identify AWS-side reviewers / PDMs. EngagementInvitation
+# contacts whose email is outside this set are never persisted as HubSpot
+# Contacts -- AWS reviewers occasionally include customer-side contacts in
+# invitation payloads, and a malicious / mistaken AWS-side actor could supply
+# any string here. Forwarding those into HubSpot via upsert would clobber
+# real customer contact records that share the email.
+_HYPERSCALER_DOMAINS: frozenset[str] = frozenset({"amazon.com", "aws.com"})
+
+# Marker used to distinguish Hyperscaler-Contact records this Lambda created
+# from real customer contacts. Refusing to overwrite a contact that lacks
+# this marker is the second layer of defense against the upsert-hijack
+# vector: even if the domain check is somehow bypassed, the existing real
+# contact survives because it doesn't carry the marker.
+_HYPERSCALER_LEAD_STATUS = "HYPERSCALER_CONTACT"
+
+
+def _mask_email(email: str) -> str:
+    """Partial-mask an email for log lines so CloudWatch never carries the
+    raw address. Federal-contractor compliance posture (NIST SI-12) treats
+    PII in operational logs as a control gap.
+    """
+    if not email or "@" not in email:
+        return "(unknown)"
+    local, _, domain = email.partition("@")
+    head = local[:1] if local else ""
+    return f"{head}***@{domain}"
+
+
+def _is_hyperscaler_email(email: str) -> bool:
+    if "@" not in email:
+        return False
+    domain = email.rsplit("@", 1)[-1].lower()
+    return domain in _HYPERSCALER_DOMAINS
+
+
 def _create_hyperscaler_contacts(
     *,
     invitation: dict[str, Any],
@@ -168,13 +238,28 @@ def _create_hyperscaler_contacts(
     company_id: str | None,
     hubspot: HubSpotClient,
 ) -> int:
-    """Create / upsert HubSpot Contact records for AWS-side participants.
+    """Create HubSpot Contact records for AWS-side participants.
 
-    SaaSify parity: when AWS publishes EngagementInvitation events, the
+    When AWS publishes EngagementInvitation events, the
     invitation detail can include AWS reviewer / PDM contacts. We mirror
     them as HubSpot Contacts labeled "Hyperscaler Contact" and associate
-    each one to the deal and (when known) the company. Best-effort:
-    contact creation failures are logged but never block stage updates.
+    each one to the deal and (when known) the company.
+
+    Three layers of defense against the upsert-hijack vector (an AWS-side
+    payload supplying an email that matches a real HubSpot contact):
+
+    1. Email domain must be in ``_HYPERSCALER_DOMAINS`` (amazon.com /
+       aws.com). Outside that, skip with a masked log line.
+    2. If the email already exists in HubSpot AND the existing record was
+       not previously created by this Lambda (no ``hs_lead_status =
+       HYPERSCALER_CONTACT`` marker), skip the upsert and only
+       create the association. The real customer contact is never
+       overwritten.
+    3. Email is masked before any log line so CloudWatch never carries
+       the raw value.
+
+    Best-effort: contact creation failures are logged but never block stage
+    updates.
     """
     aws_contacts = invitation.get("invitationContacts") or invitation.get("contacts") or []
     created = 0
@@ -184,7 +269,30 @@ def _create_hyperscaler_contacts(
         last = (c.get("lastName") or c.get("last_name") or "").strip()
         if not email:
             continue
+        if not _is_hyperscaler_email(email):
+            logger.warning(
+                "hyperscaler contact rejected: email domain not in allowlist (%s)",
+                _mask_email(email),
+            )
+            continue
         try:
+            existing = hubspot.find_contact_by_email(email)
+            existing_props = (existing or {}).get("properties") or {}
+            if existing and existing_props.get("hs_lead_status") != _HYPERSCALER_LEAD_STATUS:
+                # Real customer contact; do not overwrite. Just associate
+                # to the deal so the AWS reviewer linkage is visible.
+                contact_id = str(existing.get("id") or "")
+                if contact_id:
+                    hubspot.associate_objects("contacts", contact_id, "deals", deal_id)
+                    if company_id:
+                        hubspot.associate_objects(
+                            "contacts", contact_id, "companies", company_id
+                        )
+                logger.info(
+                    "hyperscaler contact: existing non-hyperscaler record skipped overwrite (%s)",
+                    _mask_email(email),
+                )
+                continue
             response = hubspot.upsert_contact({
                 "email": email,
                 "firstname": first,
@@ -192,7 +300,7 @@ def _create_hyperscaler_contacts(
                 "company": "AWS",
                 "jobtitle": c.get("businessTitle") or "AWS Partner Development Manager",
                 "lifecyclestage": "other",
-                "hs_lead_status": "HYPERSCALER_CONTACT",
+                "hs_lead_status": _HYPERSCALER_LEAD_STATUS,
             })
             contact_id = str(response.get("id") or "")
             if contact_id:
@@ -203,7 +311,9 @@ def _create_hyperscaler_contacts(
                     )
                 created += 1
         except Exception:  # noqa: BLE001 -- best-effort
-            logger.exception("hyperscaler contact upsert failed for %r", email)
+            logger.exception(
+                "hyperscaler contact upsert failed (%s)", _mask_email(email)
+            )
     return created
 
 

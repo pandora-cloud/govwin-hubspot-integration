@@ -1,6 +1,6 @@
 # ACE Integration Guide
 
-How GovWin opportunities flow into AWS Partner Central via this integration's direct AWS Partner Central Selling API integration. Replaces the SaaSify ACE Connector.
+How GovWin opportunities flow into AWS Partner Central via this integration's direct AWS Partner Central Selling API client. No third-party connector dependency.
 
 ## Overview
 

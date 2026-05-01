@@ -116,7 +116,7 @@ _DEAL_PROPERTIES_FOR_MAPPING = [
     "govwin_ace_use_case",
     "govwin_ace_other_solution_description",
     "govwin_ace_opportunity_type",
-    # SaaSify-parity additions:
+    # Extended BD-editable property surface for richer AWS submissions:
     "govwin_ace_marketing_source",
     "govwin_ace_marketing_campaign_name",
     "govwin_ace_marketing_use_cases",
@@ -137,6 +137,11 @@ _COMPANY_PROPERTIES_FOR_MAPPING = [
 
 _CONTACT_PROPERTIES_FOR_MAPPING = [
     "firstname", "lastname", "email", "phone", "jobtitle",
+    # PII gate: only forward contacts whose lifecyclestage flags
+    # customer-side intent. Hyperscaler-Contact records (AWS-side
+    # participants the EventBridge handler created) are filtered out
+    # via hs_lead_status.
+    "lifecyclestage", "hs_lead_status",
 ]
 
 
@@ -284,6 +289,7 @@ def _process_event(
     # via ConflictException -- a redelivered SQS message won't re-associate.
     aws_products = aws_products_for_deal(deal)
     if aws_products and not mapping.get("ace_task_id"):
+        product_failures: list[str] = []
         for product_id in aws_products:
             try:
                 ace.associate_opportunity(
@@ -299,13 +305,30 @@ def _process_event(
             except ACEAPIError as exc:
                 if exc.code == "ConflictException":
                     continue  # already associated
-                # Don't fail the whole submission if one product is invalid;
-                # log and move on. AWS will accept the rest.
+                # Real failure (typo'd identifier, ResourceNotFoundException,
+                # ValidationException). Don't fail the whole submission
+                # because one product is invalid -- but DO surface to BD
+                # via SNS so the bad value gets fixed in HubSpot.
                 logger.warning(
-                    "ace.associate awsproduct=%s failed (continuing): %s",
+                    "ace.associate awsproduct=%s failed: %s",
                     product_id,
                     exc,
                 )
+                product_failures.append(f"{product_id}: {exc.code}")
+        if product_failures:
+            _publish_mapping_error_alert(
+                config=config,
+                deal_id=deal_id,
+                govwin_id=govwin_id,
+                error=(
+                    f"AWS Products association failed for {len(product_failures)} "
+                    f"value(s) on opp={ace_opportunity_id}: "
+                    + "; ".join(product_failures)
+                    + ". Check govwin_ace_aws_products on the deal "
+                    "(Identifiers must match aws_products.json from "
+                    "github.com/aws-samples/partner-crm-integration-samples)."
+                ),
+            )
 
     # Step 4: StartEngagementFromOpportunityTask. Reuse a persisted task token
     # so that an SQS retry hits the same idempotency key on the AWS side.

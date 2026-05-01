@@ -387,7 +387,7 @@ DEAL_PROPERTIES: list[HubSpotProperty] = [
         ),
     ),
     # ---------------------------------------------------------------------
-    # Marketing block (BD-editable; defaults match SaaSify's "No" defaults)
+    # Marketing block (BD-editable; defaults to "No")
     # ---------------------------------------------------------------------
     HubSpotProperty(
         name="govwin_ace_marketing_source",

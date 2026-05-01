@@ -56,8 +56,8 @@ class TestMapHubSpotDealToACECreatePayload:
         assert payload["Project"]["CustomerUseCase"] == "Migration / Database Migration"
         assert payload["LifeCycle"]["TargetCloseDate"] == "2026-12-31"
         assert payload["PartnerOpportunityIdentifier"] == "OPP263150"
-        # MRR fix: 150_000 total / 12 months ≈ 12500 monthly. SaaSify
-        # parity (their Expression: Amount * 0.083 ≈ 1/12).
+        # MRR fix: 150_000 total / 12 months ≈ 12500 monthly to match
+        # AWS Frequency=Monthly semantics.
         assert payload["Project"]["ExpectedCustomerSpend"][0]["Amount"] == "12500.00"
         assert payload["Project"]["ExpectedCustomerSpend"][0]["Frequency"] == "Monthly"
 
@@ -278,10 +278,9 @@ class TestEnumParity:
         )
 
 
-class TestSaaSifyParity:
-    """SaaSify-parity additions: associated company / contacts / owner,
-    Marketing block, Additional Details, MRR fix, AWS Products list.
-    """
+class TestExtendedFieldMapping:
+    """Extended-mapping tests: associated company / contacts / owner reads,
+    Marketing block, Additional Details, MRR fix, AWS Products list."""
 
     def test_customer_account_reads_from_associated_company(
         self, deal: dict[str, object], app_config: AppConfig
@@ -521,3 +520,97 @@ class TestPhoneNormalization:
         contact = payload["Customer"]["Contacts"][0]
         assert contact["Email"] == "jd@x.gov"
         assert "Phone" not in contact
+
+
+class TestSecurityHardening:
+    """Audit-driven hardening tests."""
+
+    def test_country_strict_allowlist_rejects_unknown(self, deal, app_config):
+        """A free-text country that's not in the lookup map and not a
+        valid ISO-2 code raises ACEMappingError rather than silently
+        producing a wrong code (e.g. 'Internal Test' -> 'IN' which is
+        India). Federal jurisdiction routing depends on this."""
+        company = {"id": "c1", "properties": {
+            "name": "X", "country": "Internal Test",
+        }}
+        with pytest.raises(ACEMappingError, match="Cannot map country"):
+            map_hubspot_deal_to_ace_create_payload(
+                deal, app_config, client_token="tok", company=company,
+            )
+
+    def test_country_full_name_resolves(self, deal, app_config):
+        company = {"id": "c1", "properties": {"name": "X", "country": "Germany"}}
+        payload = map_hubspot_deal_to_ace_create_payload(
+            deal, app_config, client_token="tok", company=company,
+        )
+        assert payload["Customer"]["Account"]["Address"]["CountryCode"] == "DE"
+
+    def test_phone_repeated_digits_rejected(self):
+        from src.ace.mapper import _normalize_phone
+        assert _normalize_phone("0000000000") is None
+        assert _normalize_phone("1111111111") is None
+        assert _normalize_phone("+1111111111111") is None
+
+    def test_phone_extension_stripped(self):
+        from src.ace.mapper import _normalize_phone
+        assert _normalize_phone("+1 202 555 0100 x123") == "+12025550100"
+        assert _normalize_phone("(202) 555-0100 ext 5") == "+12025550100"
+        assert _normalize_phone("202-555-0100,99") == "+12025550100"
+
+    def test_phone_nanp_area_code_validated(self):
+        from src.ace.mapper import _normalize_phone
+        # 10-digit US: area code must start [2-9]
+        assert _normalize_phone("0000000000") is None
+        assert _normalize_phone("1234567890") is None  # area code 1, invalid
+        # 11-digit US: must be 1-NXXNXXXXXX where N is [2-9]
+        assert _normalize_phone("11234567890") is None  # area code 1, invalid
+
+    def test_marketing_block_strips_control_chars(self, deal, app_config):
+        deal["properties"]["govwin_ace_marketing_source"] = "Marketing Activity"
+        deal["properties"]["govwin_ace_marketing_campaign_name"] = "AWS\x00Re:Invent\x07"
+        payload = map_hubspot_deal_to_ace_create_payload(
+            deal, app_config, client_token="tok",
+        )
+        assert payload["Marketing"]["CampaignName"] == "AWSRe:Invent"
+
+    def test_contacts_filtered_by_lifecyclestage(self, deal, app_config):
+        contacts = [
+            # forwardable: opportunity stage
+            {"id": "1", "properties": {
+                "firstname": "Jane", "lastname": "Doe",
+                "email": "jane.doe@energy.gov",
+                "lifecyclestage": "opportunity",
+            }},
+            # not forwardable: subscriber (newsletter signup, not customer-side)
+            {"id": "2", "properties": {
+                "firstname": "Spam", "lastname": "User",
+                "email": "spam@x.com",
+                "lifecyclestage": "subscriber",
+            }},
+            # not forwardable: hyperscaler-contact (AWS-side, not customer)
+            {"id": "3", "properties": {
+                "firstname": "PDM", "lastname": "Person",
+                "email": "pdm@amazon.com",
+                "hs_lead_status": "HYPERSCALER_CONTACT",
+            }},
+        ]
+        payload = map_hubspot_deal_to_ace_create_payload(
+            deal, app_config, client_token="tok", contacts=contacts,
+        )
+        out = payload["Customer"]["Contacts"]
+        assert len(out) == 1
+        assert out[0]["Email"] == "jane.doe@energy.gov"
+
+    def test_state_full_name_normalized_to_aws_enum(self, deal, app_config):
+        """HubSpot stores 'District of Columbia' (full name) but AWS's
+        enum requires 'Dist. of Columbia'."""
+        company = {"id": "c1", "properties": {
+            "name": "X", "country": "US", "state": "District of Columbia",
+        }}
+        payload = map_hubspot_deal_to_ace_create_payload(
+            deal, app_config, client_token="tok", company=company,
+        )
+        assert (
+            payload["Customer"]["Account"]["Address"]["StateOrRegion"]
+            == "Dist. of Columbia"
+        )

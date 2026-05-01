@@ -132,8 +132,11 @@ class TestApplyDelta:
         assert result["results"][0]["status"] == "updated"
         body = ace.update_with_retry.call_args.kwargs["updates"]
         spend = body["Project"]["ExpectedCustomerSpend"]
-        assert spend[0]["Amount"] == "250000.00"
+        # MRR convention: HubSpot annual amount / 12 -> AWS Frequency=Monthly
+        # (matches the create-path mapper).
+        assert spend[0]["Amount"] == "20833.33"
         assert spend[0]["CurrencyCode"] == "USD"
+        assert spend[0]["Frequency"] == "Monthly"
 
     def test_amount_invalid_string_skips(self):
         ace, state, hubspot = _patches()

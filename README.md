@@ -1,6 +1,6 @@
 # GovWin to AWS Partner Central, end-to-end and open-source
 
-The first fully open-source pipeline from Deltek GovWin IQ to AWS Partner Central, via HubSpot CRM. No SaaSify, no Commercient, no paid dependencies. MIT licensed.
+The first fully open-source pipeline from Deltek GovWin IQ to AWS Partner Central, via HubSpot CRM. No paid third-party connector dependencies. MIT licensed.
 
 Built and maintained by [Pandora Cloud](https://pandoracloud.net).
 
@@ -52,17 +52,17 @@ The HubSpot to AWS Partner Central half (new in v2):
 
 ## How does this compare to other tools?
 
-| | This project (v2) | This project (v1) | SaaSify ACE Connector | Commercient SYNC | Salesforce Connector |
-|---|---|---|---|---|---|
-| GovWin to HubSpot | Yes | Yes | No | Yes | No |
-| HubSpot to AWS Partner Central | Yes (direct API) | Via SaaSify | Yes | No | No |
-| Open source | Yes (MIT) | Yes (MIT) | No | No | No |
-| Cost | Free | Free | $$$/seat/month | $$/seat/month | $$/seat/month |
-| Federal-aware (NAICS, GovWin status) | Yes | Yes | No | No | No |
+| | This project (v2) | This project (v1) | Salesforce Connector |
+|---|---|---|---|
+| GovWin to HubSpot | Yes | Yes | No |
+| HubSpot to AWS Partner Central | Yes (direct API) | No (out of scope in v1) | No |
+| Open source | Yes (MIT) | Yes (MIT) | No |
+| Cost | Free | Free | $$/seat/month |
+| Federal-aware (NAICS, GovWin status) | Yes | Yes | No |
 
 ## ACE-Ready Deals
 
-The integration auto-populates 9 of the 12 mandatory fields required by AWS Partner Central (ACE). After a deal syncs to HubSpot, your team only needs to fill in three fields before submitting through the SaaSify ACE Connector.
+The integration auto-populates the majority of mandatory fields required by AWS Partner Central (ACE). After a deal syncs to HubSpot, your team only needs to fill in three fields before submitting to AWS Partner Central.
 
 | # | ACE Mandatory Field | HubSpot Property | Source | Auto-populated |
 |---|---|---|---|---|

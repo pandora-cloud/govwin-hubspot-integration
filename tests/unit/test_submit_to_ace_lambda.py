@@ -69,6 +69,12 @@ def _patches(deal_payload: dict, ace_responses: dict | None = None):
     hubspot.__enter__.return_value = hubspot
     hubspot.__exit__.return_value = False
     hubspot.get_deal.return_value = deal_payload
+    # The new associated-record reads (Company / Contacts / Owner) default
+    # to "no association" so the mapper falls back to deal-level GovWin
+    # values. Tests that need rich associated data override these.
+    hubspot.get_associated_company.return_value = None
+    hubspot.get_associated_contacts.return_value = []
+    hubspot.get_owner.return_value = None
 
     return ace, state, hubspot
 

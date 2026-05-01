@@ -338,7 +338,7 @@ aws stepfunctions start-execution \
 
 ## Step 9: Wire up the AWS Partner Central submission half (v2)
 
-The GovWin to HubSpot half is now running. To submit deals onward to AWS Partner Central via this project's own Selling-API client (no SaaSify required):
+The GovWin to HubSpot half is now running. To submit deals onward to AWS Partner Central via this project's own Selling-API client:
 
 ### 9a. Confirm AWS Partner Central prerequisites
 

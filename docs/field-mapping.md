@@ -48,7 +48,7 @@ All GovWin-specific properties are created under the `govwin` property group in 
 
 ### ACE-ready properties (Deal)
 
-These properties feed `src/ace/mapper.py`, which builds the `CreateOpportunity` payload submitted to the AWS Partner Central Selling API directly (no SaaSify dependency).
+These properties feed `src/ace/mapper.py`, which builds the `CreateOpportunity` payload submitted to the AWS Partner Central Selling API directly.
 
 | ACE field on the wire | HubSpot property | Source | Auto-populated? |
 |---|---|---|---|

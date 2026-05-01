@@ -132,11 +132,11 @@ This pattern matches the existing dedup logic in `src/sync/dedup.py` for GovWin 
 
 The EventBridge rule itself only needs `events:PutRule` and `events:PutTargets`. The Lambda target needs the standard EventBridge invoke permission (handled via `aws_lambda_permission` resource in Terraform).
 
-## What this enables that SaaSify doesn't
+## What direct EventBridge subscriptions enable
 
-SaaSify provides a fixed set of webhooks back to HubSpot. With direct EventBridge subscriptions we can:
+Unlike a fixed-webhook third-party connector, with direct EventBridge subscriptions we can:
 
-- React to AWS-originated referrals (no SaaSify path for partner-Receiver flow)
+- React to AWS-originated referrals (the partner-Receiver flow)
 - See engagement member changes (multi-partner deals)
 - Detect snapshot revisions (AWS edited the opportunity on their end)
-- Filter and route events with native EventBridge rules instead of being limited to whatever SaaSify chose to expose
+- Filter and route events with native EventBridge rules instead of being limited to a fixed set of vendor-exposed webhooks

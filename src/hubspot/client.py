@@ -206,6 +206,42 @@ class HubSpotClient:
         update_payload = {
             k: v for k, v in payload.items() if k not in {"name", "type", "hasUniqueValue"}
         }
+        # Option-list merge: HubSpot's PATCH replaces options wholesale,
+        # which deletes any value BD added in the HubSpot UI that we
+        # don't ship in code. Preserve BD-added values by unioning the
+        # existing options with ours; on conflict (same value), our
+        # label / description / displayOrder wins. WARN if BD has options
+        # we don't ship so the operator can decide whether to retire them.
+        if prop.options is not None:
+            try:
+                existing = self._get(
+                    f"crm/v3/properties/{object_type}/{prop.name}"
+                )
+                existing_options = existing.get("options") or []
+                ours_by_value = {o["value"]: o for o in prop.options}
+                merged: list[dict[str, Any]] = list(prop.options)
+                bd_added: list[str] = []
+                for opt in existing_options:
+                    val = opt.get("value")
+                    if val and val not in ours_by_value:
+                        merged.append(opt)
+                        bd_added.append(str(val))
+                if bd_added:
+                    logger.warning(
+                        "%s.%s: preserving %d BD-added option(s) not in code: %s",
+                        object_type, prop.name, len(bd_added), bd_added[:10],
+                    )
+                update_payload["options"] = merged
+            except HubSpotAPIError as e:
+                # If we can't read existing options, fall back to
+                # replacing -- accepts the BD-option-loss risk for the
+                # rare case where the GET fails but the PATCH might
+                # succeed. Emit at WARN so the operator sees it.
+                logger.warning(
+                    "Could not read existing options for %s on %s "
+                    "(falling back to wholesale replace): %s",
+                    prop.name, object_type, e,
+                )
         try:
             self._patch(
                 f"crm/v3/properties/{object_type}/{prop.name}",
@@ -387,8 +423,8 @@ class HubSpotClient:
         """Return the deal's primary associated HubSpot Company, or None.
 
         Used by the ACE mapper to populate Customer.Account.* from real
-        company data instead of the constants the mapper used pre-SaaSify-
-        parity. HubSpot deals can have multiple company associations; we
+        company data instead of the constants previously hardcoded.
+        HubSpot deals can have multiple company associations; we
         return the first one found.
         """
         try:
@@ -458,6 +494,25 @@ class HubSpotClient:
             return None
         try:
             return self._get(f"crm/v3/owners/{owner_id}")
+        except HubSpotAPIError as exc:
+            if exc.status_code == 404:
+                return None
+            raise
+
+    def find_contact_by_email(self, email: str) -> dict[str, Any] | None:
+        """Return the existing HubSpot Contact for an email address, or None.
+
+        Used by the Hyperscaler-Contact creation path to refuse to overwrite
+        a real customer contact when AWS publishes an EngagementInvitation
+        with a colliding email. Idempotent and read-only.
+        """
+        if not email or "@" not in email:
+            return None
+        try:
+            return self._get(
+                f"crm/v3/objects/contacts/{email}",
+                params={"idProperty": "email", "properties": "email,hs_lead_status"},
+            )
         except HubSpotAPIError as exc:
             if exc.status_code == 404:
                 return None

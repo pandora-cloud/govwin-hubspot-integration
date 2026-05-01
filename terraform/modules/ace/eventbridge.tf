@@ -1,12 +1,21 @@
 # EventBridge rules for AWS Partner Central events.
 # All rules target the same handler Lambda; the handler dispatches by
 # detail-type and idempotently dedups by event id.
+#
+# Defense-in-depth on the rule patterns: the default bus already rejects
+# PutEvents from foreign callers specifying source = "aws.*", but adding
+# `account` to the pattern means even a misconfigured custom bus or a
+# future cross-account event-bus policy cannot land non-local events on
+# our handler.
+
+data "aws_caller_identity" "current" {}
 
 resource "aws_cloudwatch_event_rule" "opportunity_changes" {
   name        = "${var.name_prefix}-ace-opportunity-changes"
   description = "Opportunity Created/Updated events for our catalog"
   event_pattern = jsonencode({
     source        = ["aws.partnercentral-selling"]
+    account       = [data.aws_caller_identity.current.account_id]
     "detail-type" = ["Opportunity Created", "Opportunity Updated"]
     detail = {
       catalog = [var.ace_catalog]
@@ -18,7 +27,8 @@ resource "aws_cloudwatch_event_rule" "invitation_outcomes" {
   name        = "${var.name_prefix}-ace-invitation-outcomes"
   description = "Engagement invitation lifecycle events"
   event_pattern = jsonencode({
-    source = ["aws.partnercentral-selling"]
+    source  = ["aws.partnercentral-selling"]
+    account = [data.aws_caller_identity.current.account_id]
     "detail-type" = [
       "Engagement Invitation Created",
       "Engagement Invitation Accepted",
