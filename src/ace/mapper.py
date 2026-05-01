@@ -262,7 +262,7 @@ def _get(deal: dict[str, Any], key: str) -> Any:
 
 
 # ISO-3166 alpha-2 country codes. Full set is ~250 entries; we ship the
-# subset Pandora's federal/SLED audience plausibly encounters and force
+# subset a federal/SLED partner audience plausibly encounters and force
 # any other value through the lookup map below. The strict allowlist
 # prevents the "United States" -> "UN" or "Germany" -> "GE" wrong-code
 # misroutings that AWS would silently accept and that violate CMMC L2
@@ -327,7 +327,7 @@ def _normalize_country(value: str | None) -> str:
     Georgia, or "Internal Test" -> "IN" which is India). Federal jurisdiction
     routing depends on this; getting it wrong creates compliance gaps.
 
-    Empty / missing values default to ``"US"`` because Pandora's customer
+    Empty / missing values default to ``"US"`` because this project's customer
     base is overwhelmingly US-federal.
     """
     if not value:
@@ -504,7 +504,7 @@ def _normalize_phone(value: str | None) -> str | None:
 
 # HubSpot lifecyclestage values whose contacts may be forwarded to AWS as
 # customer-side participants. Other stages (subscriber, evangelist, other,
-# internal Pandora staff misclassified by BD) are dropped to avoid leaking
+# internal partner staff misclassified by BD) are dropped to avoid leaking
 # PII to AWS reviewers under GDPR/CCPA "purpose limitation" and SOC 2 CC6.7.
 _FORWARDABLE_LIFECYCLESTAGES: frozenset[str] = frozenset({
     "lead",
@@ -527,7 +527,7 @@ def _customer_contacts(
 
     PII purpose-limitation: a contact is only forwarded to AWS when its
     HubSpot ``lifecyclestage`` indicates customer-side intent (lead /
-    qualified lead / opportunity / customer). Internal Pandora staff or
+    qualified lead / opportunity / customer). Internal partner staff or
     misclassified contacts ("subscriber", "other", blank stage) are
     dropped so PII never reaches AWS reviewers without a CRM-level
     consent signal. Hyperscaler-Contact records (created by the
@@ -640,7 +640,10 @@ def _marketing_block(deal: dict[str, Any]) -> dict[str, Any] | None:
     return block
 
 
-def _project_block(deal: dict[str, Any]) -> dict[str, Any]:
+def _project_block(
+    deal: dict[str, Any],
+    partner_company_name: str = "Partner Company",
+) -> dict[str, Any]:
     title = _get(deal, "dealname") or "GovWin Opportunity"
     description = _get(deal, "description") or _get(deal, "govwin_primary_requirement") or ""
     delivery_models = _split_csv(_get(deal, "govwin_ace_delivery_model"))
@@ -738,7 +741,7 @@ def _project_block(deal: dict[str, Any]) -> dict[str, Any]:
                         "Amount": f"{monthly:.2f}",
                         "CurrencyCode": "USD",
                         "Frequency": "Monthly",
-                        "TargetCompany": "Pandora Cloud LLC",
+                        "TargetCompany": partner_company_name,
                     }
                 ]
         except (TypeError, ValueError):
@@ -842,7 +845,7 @@ def map_hubspot_deal_to_ace_create_payload(
         "Origin": config.ace.default_origin,
         "OpportunityType": "Net New Business",
         "PrimaryNeedsFromAws": primary_needs,
-        "Project": _project_block(deal),
+        "Project": _project_block(deal, config.ace.partner_company_name),
         "Customer": customer,
         "LifeCycle": _life_cycle_block(deal),
     }

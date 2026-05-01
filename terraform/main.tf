@@ -118,6 +118,7 @@ module "ace" {
   ace_default_solution_id       = var.ace_default_solution_id
   ace_default_involvement_type  = var.ace_default_involvement_type
   ace_default_visibility        = var.ace_default_visibility
+  ace_partner_company_name      = var.ace_partner_company_name
   ace_trigger_stages            = var.ace_trigger_stages
   hubspot_webhook_app_id        = var.hubspot_webhook_app_id
   hubspot_webhook_client_secret = var.hubspot_webhook_client_secret

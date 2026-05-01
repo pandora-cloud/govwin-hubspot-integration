@@ -196,7 +196,7 @@ variable "ace_catalog" {
 
 variable "ace_default_solution_id" {
   description = <<-EOT
-    Default Partner Central Solution ID. Production: e.g. S-0051246 for the
+    Default Partner Central Solution ID. Production: e.g. S-1234567 for the
     AWS catalog. Sandbox: leave EMPTY unless AWS support has provisioned a
     Sandbox Solution for your org (the default S-1234567 in the docs is not
     auto-provisioned). When empty, submit_to_ace skips AssociateOpportunity
@@ -217,6 +217,17 @@ variable "ace_default_visibility" {
   description = "Visibility level for engagements"
   type        = string
   default     = "Full"
+}
+
+variable "ace_partner_company_name" {
+  description = <<-EOT
+    Partner company legal name surfaced as ExpectedCustomerSpend.TargetCompany in
+    AWS Partner Central. Must be set per deployment to the deploying partner's
+    legal name (e.g. "Acme Cloud LLC"). Defaults to a placeholder so unconfigured
+    deploys do not write someone else's company name to AWS.
+  EOT
+  type        = string
+  default     = "Partner Company"
 }
 
 variable "ace_trigger_stages" {

@@ -57,10 +57,16 @@ class ACEConfig:
     """
 
     catalog: str = "Sandbox"
-    default_solution_id: str = ""  # e.g. "S-0051246" (Pandora Cloud Professional Services)
+    default_solution_id: str = ""  # e.g. "S-1234567" (your registered Solution)
     default_involvement_type: str = "Co-Sell"
     default_visibility: str = "Full"
     default_origin: str = "Partner Referral"
+    # Partner company name surfaced in AWS Partner Central as the
+    # ExpectedCustomerSpend.TargetCompany field. Must be set per-deployment
+    # to the deploying partner's legal name; defaults to a placeholder so
+    # forks and unconfigured deploys don't accidentally write someone
+    # else's company name to AWS.
+    partner_company_name: str = "Partner Company"
     rate_limit_writes_per_sec: int = 1
     rate_limit_reads_per_sec: int = 10
     webhook_max_age_seconds: int = 300  # 5-minute replay window per HubSpot docs
@@ -141,6 +147,9 @@ def load_config() -> AppConfig:
             default_involvement_type=os.environ.get("ACE_DEFAULT_INVOLVEMENT_TYPE", "Co-Sell"),
             default_visibility=os.environ.get("ACE_DEFAULT_VISIBILITY", "Full"),
             default_origin=os.environ.get("ACE_DEFAULT_ORIGIN", "Partner Referral"),
+            partner_company_name=os.environ.get(
+                "ACE_PARTNER_COMPANY_NAME", "Partner Company"
+            ),
         ),
         environment=os.environ.get("ENVIRONMENT", "prod"),
     )

@@ -62,11 +62,17 @@ hubspot_private_app_token = "pat-na1-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
 
 # Default solution to associate with each opportunity. Discover via:
 #   aws partnercentral-selling list-solutions --catalog AWS --region us-east-1
-ace_default_solution_id = "S-0051246"
+ace_default_solution_id = "S-1234567"
 
 # ace_default_involvement_type = "Co-Sell"
 # ace_default_visibility       = "Full"
 # ace_trigger_stages           = "submit_to_aws,submitted_to_aws"
+
+# Partner company legal name surfaced to AWS Partner Central as
+# ExpectedCustomerSpend.TargetCompany. Set this per deployment to your
+# company's legal name; the default is a placeholder that AWS will accept
+# but is not what you want in production.
+ace_partner_company_name = "Acme Cloud LLC"
 
 ###############################################################################
 # Required - HubSpot developer-platform webhook app (2025.2+)

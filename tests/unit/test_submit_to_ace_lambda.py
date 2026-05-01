@@ -13,7 +13,7 @@ from src.lambdas import submit_to_ace
 @pytest.fixture(autouse=True)
 def _ace_env(monkeypatch):
     monkeypatch.setenv("ACE_CATALOG", "Sandbox")
-    monkeypatch.setenv("ACE_DEFAULT_SOLUTION_ID", "S-0051246")
+    monkeypatch.setenv("ACE_DEFAULT_SOLUTION_ID", "S-1234567")
     monkeypatch.setenv("ACE_TRIGGER_STAGES", "submit_to_aws,submitted_to_aws")
 
 
@@ -46,7 +46,7 @@ def deal_payload() -> dict:
             "govwin_industry": "Government",
             "govwin_ace_partner_need": "Co-Sell - Technical Consultation",
             "govwin_ace_delivery_model": "Professional Services",
-            "govwin_ace_solution_id": "S-0051246",
+            "govwin_ace_solution_id": "S-1234567",
         },
     }
 
