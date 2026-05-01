@@ -131,6 +131,24 @@ issues:
       5. Re-run the sandbox smoke matrix end-to-end against the migrated app to confirm webhook signature validation, deal-stage trigger, and property-change routing all still work.
       6. Schedule a maintainer reminder for 2026-06-24 itself to re-verify nothing degraded post-cutover.
 
+      **Current declared scopes** (`hubspot-app/src/app/app-hsmeta.json`):
+
+      - `oauth`
+      - `crm.objects.deals.read`
+      - `crm.objects.deals.write`
+      - `crm.schemas.deals.read`
+
+      **What the integration actually does with HubSpot** (the audit must confirm the granular set covers all of these):
+
+      - Reads deals via batch search for upsert deduplication (`crm.objects.deals.read`)
+      - Writes deals via batch upsert (`crm.objects.deals.write`)
+      - Reads associated companies and contacts for ACE mapping (`crm.objects.companies.read`, `crm.objects.contacts.read`)
+      - Writes companies and contacts (`crm.objects.companies.write`, `crm.objects.contacts.write`)
+      - Reads pipelines and stage definitions (`crm.schemas.deals.read`)
+      - Receives webhook subscriptions on `deal.propertyChange` for `dealstage`, `amount`, `closedate`, `dealname`, `description`, `govwin_ace_use_case`
+
+      The current `requiredScopes` array undeclares the company / contact permissions because the underlying private-app token already has them via the Service Key. After the granular migration this dependency may break: granular permissions are scoped per app, not per token. Specifically check that the migrated app retains read+write on companies and contacts in addition to deals.
+
       **References**: HubSpot's [granular permissions migration guide](https://developers.hubspot.com/docs/api/granular-permissions). App ID 38079082.
 
       **Definition of done**: confirmed-correct granular permission set on the live app, documented diff committed, and a maintainer subscribed to a reminder for the cutover date.
