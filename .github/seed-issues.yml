@@ -116,6 +116,25 @@ issues:
 
       **Definition of done**: PR with the fixture, tests, and a docstring.
 
+  - title: "Audit HubSpot granular-permission migration before 2026-06-24 auto-cutover"
+    labels: [security, blocker, pre-launch]
+    body: |
+      HubSpot is auto-migrating apps to the granular-permission model on **2026-06-24**. This project's developer-platform app (id `38079082`) currently has classic scopes; if HubSpot's auto-mapping picks the wrong granular permission set, the webhook flow could silently lose access to some property changes after the cutover.
+
+      **Goal**: review and confirm the post-migration permission set ourselves before HubSpot does it for us. This is a launch-blocker because we don't want to ship public release notes that say "works perfectly" and then have the webhook flow degrade two weeks later.
+
+      **What to do**:
+      1. Open the app in the HubSpot developer portal, switch to the granular-permission preview, and capture the proposed mapping.
+      2. Diff the proposed granular set against the current required scopes (`hubspot-app/src/app/app-hsmeta.json`) and confirm coverage for: deal read/write, company read/write, contact read/write, schemas read/write, webhook delivery, OAuth.
+      3. If the auto-mapping is correct, do nothing and document the diff in `docs/hubspot-granular-permissions.md` for posterity.
+      4. If it's wrong, override in the HubSpot UI and pin the granular set explicitly in `app-hsmeta.json` so the next `hs project upload` re-asserts it.
+      5. Re-run the sandbox smoke matrix end-to-end against the migrated app to confirm webhook signature validation, deal-stage trigger, and property-change routing all still work.
+      6. Schedule a maintainer reminder for 2026-06-24 itself to re-verify nothing degraded post-cutover.
+
+      **References**: HubSpot's [granular permissions migration guide](https://developers.hubspot.com/docs/api/granular-permissions). App ID 38079082.
+
+      **Definition of done**: confirmed-correct granular permission set on the live app, documented diff committed, and a maintainer subscribed to a reminder for the cutover date.
+
   - title: "Add architecture diagram source for v2.2 once the HubSpot CRM card lands"
     labels: [help-wanted, docs, blocked-by-roadmap]
     body: |
