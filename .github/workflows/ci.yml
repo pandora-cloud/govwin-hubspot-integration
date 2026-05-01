@@ -33,17 +33,21 @@ jobs:
       - uses: actions/checkout@v4
       - uses: hashicorp/setup-terraform@v3
         with:
-          terraform_version: "1.7.5"
+          terraform_version: "1.11.4"
       - name: Format check
         working-directory: terraform
         run: terraform fmt -recursive -check
-        continue-on-error: true
       - name: Init (no backend)
         working-directory: terraform
         run: terraform init -backend=false
       - name: Validate
         working-directory: terraform
         run: terraform validate
+      - name: Bootstrap module init + validate
+        working-directory: terraform/bootstrap
+        run: |
+          terraform init -backend=false
+          terraform validate
 
   supply-chain:
     name: Dependency audit (pip-audit)
