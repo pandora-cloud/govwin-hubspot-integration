@@ -112,10 +112,10 @@ class TestUpdateWithRetry:
 class TestAssociateAndStartEngagement:
     def test_associate_passes_args(self, ace: ACEClient, mock_boto: MagicMock) -> None:
         mock_boto.associate_opportunity.return_value = {}
-        ace.associate_opportunity("O1", "S-0051246")
+        ace.associate_opportunity("O1", "S-1234567")
         kwargs = mock_boto.associate_opportunity.call_args.kwargs
         assert kwargs["RelatedEntityType"] == "Solutions"
-        assert kwargs["RelatedEntityIdentifier"] == "S-0051246"
+        assert kwargs["RelatedEntityIdentifier"] == "S-1234567"
 
     def test_start_engagement_uses_config_defaults(
         self, ace: ACEClient, mock_boto: MagicMock

@@ -321,7 +321,7 @@ def test_hyperscaler_contact_rejects_non_aws_email_domain(
         "engagementId": "eng-1",
         "participantType": "Sender",
         "invitationContacts": [
-            {"email": "isi@pandoracloud.net", "firstName": "Isi", "lastName": "L"},
+            {"email": "real-customer@example.com", "firstName": "Real", "lastName": "Customer"},
             {"email": "rogue@evil.example", "firstName": "X", "lastName": "Y"},
         ],
     }

@@ -25,7 +25,7 @@ from src.lambdas import update_in_ace
 @pytest.fixture(autouse=True)
 def _ace_env(monkeypatch):
     monkeypatch.setenv("ACE_CATALOG", "Sandbox")
-    monkeypatch.setenv("ACE_DEFAULT_SOLUTION_ID", "S-0051246")
+    monkeypatch.setenv("ACE_DEFAULT_SOLUTION_ID", "S-1234567")
 
 
 def _record(prop: str, value: object, deal_id: str = "320194741966") -> dict:
@@ -77,7 +77,7 @@ def _full_get_opp_response() -> dict:
                     "Amount": "100000.00",
                     "CurrencyCode": "USD",
                     "Frequency": "Monthly",
-                    "TargetCompany": "Pandora Cloud LLC",
+                    "TargetCompany": "Partner Company",
                 }
             ],
         },

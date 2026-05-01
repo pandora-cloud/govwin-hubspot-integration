@@ -122,14 +122,14 @@ class TestMapHubSpotDealToACECreatePayload:
         self, deal: dict[str, object], app_config: AppConfig
     ) -> None:
         deal["properties"]["govwin_ace_other_solution_description"] = (  # type: ignore[index]
-            "Pandora federal cloud services"
+            "Partner federal cloud services"
         )
         payload = map_hubspot_deal_to_ace_create_payload(
             deal, app_config, client_token="tok"
         )
         assert (
             payload["Project"]["OtherSolutionDescription"]
-            == "Pandora federal cloud services"
+            == "Partner federal cloud services"
         )
 
     def test_missing_partner_need_raises(
@@ -199,7 +199,7 @@ class TestResolveSolutionId:
     ) -> None:
         from dataclasses import replace
         cfg = replace(app_config, ace=replace(app_config.ace, catalog="AWS"))
-        assert resolve_solution_id(deal, cfg) == "S-0051246"
+        assert resolve_solution_id(deal, cfg) == "S-1234567"
 
     def test_default_ignored_in_sandbox_catalog(
         self, deal: dict[str, object], app_config: AppConfig
@@ -361,15 +361,15 @@ class TestExtendedFieldMapping:
     ) -> None:
         owner = {
             "id": "42",
-            "firstName": "Isi",
-            "lastName": "Lawson",
-            "email": "isi@pandoracloud.net",
+            "firstName": "Test",
+            "lastName": "Owner",
+            "email": "owner@example.com",
         }
         payload = map_hubspot_deal_to_ace_create_payload(
             deal, app_config, client_token="tok", owner=owner
         )
-        assert payload["OpportunityTeam"][0]["Email"] == "isi@pandoracloud.net"
-        assert payload["OpportunityTeam"][0]["FirstName"] == "Isi"
+        assert payload["OpportunityTeam"][0]["Email"] == "owner@example.com"
+        assert payload["OpportunityTeam"][0]["FirstName"] == "Test"
 
     def test_no_owner_omits_opportunity_team(
         self, deal: dict[str, object], app_config: AppConfig

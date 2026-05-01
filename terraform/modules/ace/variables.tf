@@ -81,7 +81,7 @@ variable "ace_catalog" {
 
 variable "ace_default_solution_id" {
   type        = string
-  description = "Default Partner Central Solution ID (e.g. S-0051246)"
+  description = "Default Partner Central Solution ID (e.g. S-1234567)"
 }
 
 variable "ace_default_involvement_type" {
@@ -92,6 +92,17 @@ variable "ace_default_involvement_type" {
 variable "ace_default_visibility" {
   type    = string
   default = "Full"
+}
+
+variable "ace_partner_company_name" {
+  type        = string
+  description = <<-EOT
+    Partner company legal name surfaced as ExpectedCustomerSpend.TargetCompany in
+    AWS Partner Central. Set per deployment to the deploying partner's legal name
+    (e.g. "Acme Cloud LLC"). Defaults to a placeholder so unconfigured deploys
+    do not write someone else's company name to AWS.
+  EOT
+  default     = "Partner Company"
 }
 
 variable "ace_trigger_stages" {
