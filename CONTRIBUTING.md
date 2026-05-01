@@ -25,6 +25,8 @@ Thanks for considering a contribution. This project is an open-source pipeline f
 - Tight coupling to Pandora Cloud's federal AWS practice (it should remain general-purpose).
 - New features that aren't accompanied by tests.
 - Style-only refactors that touch unrelated code.
+- Adapters for non-federal CRMs (Salesforce, Pipedrive, Microsoft Dynamics, Zoho, etc.). The project's scope is GovWin to HubSpot to AWS Partner Central; staying focused on that triad is what makes it useful. Forks with adapters for other CRMs are welcome.
+- Ports to other languages. Python is the chosen runtime: AWS Lambda has first-class Python support, the federal AWS partner ecosystem is overwhelmingly Python on the data-pipeline side, and the dependency surface is small enough that staying single-language keeps maintenance simple.
 
 ## Response time
 
@@ -34,6 +36,12 @@ This is a side-of-desk project for Pandora Cloud. We aim to respond to issues an
 
 If you need a faster turnaround, deployment help, federal compliance review, or feature work prioritized, Pandora Cloud offers paid services around this codebase. Reach out at <pc@pandoracloud.net>.
 
+## Repository topics
+
+Maintainers keep these GitHub topics set on the repo so search and discovery work for federal AWS partners. If you add a topic, document it here so the list stays consistent across releases:
+
+`govwin`, `hubspot`, `aws-partner-central`, `ace-connector`, `federal-contracting`, `government-contracting`, `terraform`, `aws-lambda`, `python`, `crm-integration`, `co-sell`, `woman-owned-small-business`, `serverless`, `aws`, `deltek`, `dynamodb`, `sqs`, `eventbridge`, `oss`.
+
 ## License
 
-By contributing, you agree that your contributions are licensed under the same MIT license as the project.
+By contributing, you agree that your contributions are licensed under the same Apache License, Version 2.0 as the project. Apache-2.0 includes an explicit patent grant from contributors, which gives downstream federal users stronger protection than MIT and aligns with AWS Open Source program preferences. See [LICENSE](LICENSE) for the full text.
