@@ -1,0 +1,130 @@
+# Seed issues to open at launch with the `good-first-issue` and `help-wanted`
+# labels. Review and edit, then bulk-create via:
+#
+#     for f in $(yq -r '.issues[].file' .github/seed-issues.yml); do ...
+#
+# Or use a one-off script that consumes this file and calls `gh issue create`
+# for each entry. Approve / reject each issue by commenting in this file
+# before opening them; once opened, this file can be deleted.
+
+issues:
+  - title: "Add NAICS code 541330 (Engineering Services) to industry mapping"
+    labels: [good-first-issue, help-wanted, mapping]
+    body: |
+      The NAICS -> AWS-customer-industry lookup in `src/sync/mapper.py` is missing 541330 (Engineering Services), a common federal AWS partner sector.
+
+      **What to do**:
+      1. Find the `_NAICS_TO_INDUSTRY` mapping in `src/sync/mapper.py`.
+      2. Add `"541330": "Engineering & Construction"` (or whichever AWS-published industry value is the closest match; check `docs/reference/aws-partner-central/`).
+      3. Add a regression test in `tests/unit/test_mapper.py` mirroring the existing NAICS test pattern.
+      4. Run `make test && make lint` to confirm.
+
+      **Definition of done**: PR with the mapping addition + a single unit test asserting an opp with NAICS 541330 maps to the new industry.
+
+  - title: "Add a `--dry-run` flag to `setup_hubspot_webhooks.py`"
+    labels: [good-first-issue, help-wanted, ergonomics]
+    body: |
+      The Lambda activates webhook subscriptions when invoked. A dry-run mode would print the changes it would make without calling the HubSpot API, which is useful for an operator verifying a config change.
+
+      **What to do**:
+      1. Add a `dry_run` boolean to the Lambda's input event schema (default `false`).
+      2. When `dry_run=true`, skip the `requests.put(...)` call to HubSpot's API and instead append the would-be change to the response.
+      3. Add a unit test in `tests/unit/test_setup_hubspot_webhooks_lambda.py`.
+
+      **Definition of done**: PR with the flag plumbed through, a unit test, and a docstring update.
+
+  - title: "Surface unmapped NAICS codes via a CloudWatch metric"
+    labels: [help-wanted, observability]
+    body: |
+      When a GovWin opportunity arrives with a NAICS code we don't have in `_NAICS_TO_INDUSTRY`, the mapper currently falls through to a default value silently. We want a CloudWatch metric incremented every time this happens, so the maintainer team can see which codes to add next.
+
+      **What to do**:
+      1. In the fallback branch of the NAICS lookup, call `boto3.client('cloudwatch').put_metric_data` with metric name `UnmappedNAICS` and dimensions including the unmapped code.
+      2. Add an alarm in `terraform/modules/monitoring/main.tf` if the count exceeds 10 in a 24h window.
+      3. Add a test that mocks the metric publication.
+
+      **Definition of done**: PR with metric publication, alarm, and tests.
+
+  - title: "Doctest the `_split_csv` helper in `src/ace/mapper.py`"
+    labels: [good-first-issue, help-wanted, tests]
+    body: |
+      The `_split_csv` helper handles BD-entered comma-separated values that arrive with stray whitespace, trailing commas, etc. Today it has unit-test coverage but no inline doctests showing the contract; doctests are easier to discover when reading the source.
+
+      **What to do**:
+      1. Add at least 4 doctest cases to `_split_csv` covering: normal CSV, leading/trailing whitespace, empty string, single value with no commas.
+      2. Configure `pytest --doctest-modules src/ace/mapper.py` in CI.
+
+      **Definition of done**: PR with the doctests + CI invocation.
+
+  - title: "Add a `scripts/seed_demo_deal.py` for reproducible demo recordings"
+    labels: [help-wanted, ergonomics]
+    body: |
+      Demo recordings (e.g. for the README architecture GIF) need a HubSpot deal in a specific pre-baked state: GovWin properties populated, three ACE manual fields filled, ready to drag to "Submit to AWS". Setting one up by hand each time pollutes production data.
+
+      **What to do**:
+      1. Write `scripts/seed_demo_deal.py` that takes a HubSpot Sandbox token and creates a synthetic deal preloaded with sample GovWin data and the three ACE fields populated.
+      2. The script should accept `--clean` to delete deals tagged `demo=true`.
+      3. Document usage in `docs/operations.md` under a new "Demo seeding" section.
+
+      **Definition of done**: PR with the script, idempotent re-runs, and docs.
+
+  - title: "Generate `docs/field-mapping.md` automatically from `src/sync/mapper.py`"
+    labels: [help-wanted, docs]
+    body: |
+      `docs/field-mapping.md` is hand-maintained today and drifts when developers add new mappings. Auto-generating from the source-of-truth keeps them in sync.
+
+      **What to do**:
+      1. Add a `scripts/generate_field_mapping_md.py` that introspects `_GOVWIN_TO_HUBSPOT` (or whichever data structure holds the mapping) and renders Markdown.
+      2. Wire it into a Makefile target (`make docs-field-mapping`).
+      3. Wire it into CI as a check that fails if the rendered output diverges from `docs/field-mapping.md`.
+
+      **Definition of done**: PR with generator, Makefile target, CI gate, and an updated `docs/field-mapping.md` produced by the generator.
+
+  - title: "Add a `lifecyclestage` -> ACE LifeCycle.Stage explicit mapping table"
+    labels: [help-wanted, mapping]
+    body: |
+      Currently `submit_to_ace` derives ACE `LifeCycle.Stage` from the HubSpot `dealstage` value implicitly. The mapping is defensive but undocumented. We want an explicit table that's easier to audit.
+
+      **What to do**:
+      1. Add a `_HUBSPOT_LIFECYCLE_TO_ACE_STAGE` constant in `src/ace/mapper.py`.
+      2. Replace the implicit logic with a lookup against the table.
+      3. Add tests covering each mapping branch + an unknown-value fallthrough.
+      4. Update `docs/field-mapping.md` accordingly.
+
+      **Definition of done**: PR with the lookup table, tests, and doc.
+
+  - title: "Add Renovate auto-labels for terraform vs python vs github-actions PRs"
+    labels: [good-first-issue, help-wanted, tooling]
+    body: |
+      `renovate.json` already groups updates, but PR labels would help maintainers triage faster. Renovate supports `labels` and `addLabels` per package rule.
+
+      **What to do**:
+      1. In `renovate.json`, add `addLabels` to each `packageRules` entry (e.g. `["terraform"]`, `["python"]`, `["github-actions"]`, `["docker"]`).
+      2. Confirm GitHub has those labels set up.
+
+      **Definition of done**: PR with the renovate.json change.
+
+  - title: "Test fixture: synthetic HubSpot webhook signature for offline development"
+    labels: [help-wanted, tests]
+    body: |
+      Today, testing the webhook signature path locally requires sending a request through API Gateway with a real signature, or mocking the validation. We want a fixture that produces a real `X-HubSpot-Signature-v3` for an arbitrary body + secret, so developers can write integration tests without a HubSpot account.
+
+      **What to do**:
+      1. Add `tests/fixtures/hubspot_signature.py` exposing `def sign(body: bytes, secret: str, timestamp: int) -> str`.
+      2. Add unit tests verifying the signature matches what `src/lambdas/hubspot_webhook_receiver.py` would compute.
+      3. Document usage in `docs/testing-in-your-account.md`.
+
+      **Definition of done**: PR with the fixture, tests, and a docstring.
+
+  - title: "Add architecture diagram source for v2.2 once the HubSpot CRM card lands"
+    labels: [help-wanted, docs, blocked-by-roadmap]
+    body: |
+      `docs/diagrams/architecture-v2-ace.svg` shows the v2.1 architecture. v2.2 adds a HubSpot CRM card surface (see [ROADMAP.md](../../ROADMAP.md)). Once that lands, we need an updated diagram that shows the card -> API Gateway flow alongside the existing webhook flow.
+
+      **What to do**:
+      1. Wait for v2.2.1 to merge.
+      2. Update `docs/diagrams/architecture.drawio` adding the CRM card as a new flow.
+      3. Re-export to SVG.
+      4. Update README inline links.
+
+      **Definition of done**: PR after v2.2.1 with an updated drawio + SVG + README pointer.

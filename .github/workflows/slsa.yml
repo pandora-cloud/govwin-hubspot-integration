@@ -1,0 +1,43 @@
+name: SLSA provenance
+
+on:
+  release:
+    types: [published]
+
+permissions: read-all
+
+jobs:
+  build:
+    name: Build artifact
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      digest: ${{ steps.hash.outputs.digest }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build source archive
+        run: git archive --format=tar.gz --prefix=govwin-hubspot-integration/ HEAD > source.tar.gz
+      - name: Generate hash
+        id: hash
+        run: |
+          set -euo pipefail
+          DIGEST=$(sha256sum source.tar.gz | base64 -w0)
+          echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: source-archive
+          path: source.tar.gz
+          retention-days: 7
+
+  provenance:
+    name: SLSA provenance
+    needs: [build]
+    permissions:
+      actions: read
+      id-token: write
+      contents: write
+    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v2.0.0
+    with:
+      base64-subjects: ${{ needs.build.outputs.digest }}
+      upload-assets: true
