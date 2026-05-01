@@ -1,0 +1,7 @@
+# Code ownership for review routing.
+# See https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+#
+# Until external contributors emerge, all paths are owned by the Pandora Cloud
+# maintainer team. Replace with subteam handles when contributor velocity grows.
+
+* @pandora-cloud-llc/maintainers

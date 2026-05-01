@@ -1,0 +1,4 @@
+# GitHub renders the "Sponsor" button on the repo from this file.
+# We don't accept donations; the button points to Pandora Cloud's
+# professional-services consultation page.
+custom: ["https://pandoracloud.net/#schedule-consultation"]

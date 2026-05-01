@@ -1,0 +1,78 @@
+name: Bug report
+description: Something is broken or behaving unexpectedly.
+title: "[BUG] "
+labels: ["bug", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a bug report. Redact secrets, AWS account IDs, GovWin/HubSpot IDs, and customer-identifying information before submitting. **Do not** attach raw CloudWatch log dumps unless you've scrubbed them.
+
+        For confidential security issues (credential disclosure, vulnerabilities, ACE submission integrity), use [SECURITY.md](../SECURITY.md) instead of this form.
+
+  - type: input
+    id: summary
+    attributes:
+      label: One-line summary
+      description: What is broken, in one sentence?
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction steps
+      description: Numbered steps a maintainer can follow.
+      placeholder: |
+        1. Marked GovWin opp `OPP12345` for Web Services Download
+        2. Invoked the orchestrator Lambda manually
+        3. Deal appeared in HubSpot but `govwin_industry` was empty
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: Paste relevant log lines with secrets / account IDs / customer names redacted.
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Project version or commit SHA
+    validations:
+      required: true
+
+  - type: dropdown
+    id: catalog
+    attributes:
+      label: ACE catalog
+      options:
+        - Sandbox
+        - AWS (production)
+        - Not applicable (issue is GovWin->HubSpot only)
+    validations:
+      required: true
+
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: "Terraform version, Python version, AWS region. Example: tf 1.11.4, python 3.12.10, us-east-1"
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Linked PRs, recent config changes, related issues.
