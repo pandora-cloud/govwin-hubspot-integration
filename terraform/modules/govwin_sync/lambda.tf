@@ -5,6 +5,9 @@
 locals {
   sync_env = merge(var.lambda_env, {
     GOVWIN_SYNC_QUEUE_URL = aws_sqs_queue.sync.url
+    # Federal compliance: force FIPS 140-validated TLS endpoints on every
+    # AWS API call from inside the Lambda. NIST 800-53 SC-13.
+    AWS_USE_FIPS_ENDPOINT = "true"
   })
 }
 

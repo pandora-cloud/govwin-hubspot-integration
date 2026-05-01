@@ -22,7 +22,6 @@ import logging
 import os
 from typing import Any
 
-import boto3
 from botocore.exceptions import ClientError
 
 from src.ace.client import ACEAPIError, ACEClient
@@ -33,6 +32,7 @@ from src.ace.mapper import (
     resolve_solution_id,
 )
 from src.ace.validators import is_valid_govwin_id, is_valid_hubspot_object_id
+from src.aws_clients import make_client
 from src.config import load_config
 from src.hubspot.client import HubSpotClient
 from src.sync.state import SyncStateManager
@@ -65,7 +65,7 @@ def _publish_mapping_error_alert(
         return
     global _sns_client
     if _sns_client is None:
-        _sns_client = boto3.client("sns", region_name=config.aws.region)
+        _sns_client = make_client("sns", config.aws.region)
     subject = f"ACE submission rejected (deal {deal_id})"[:100]
     message = (
         "A HubSpot deal could not be submitted to AWS Partner Central because "

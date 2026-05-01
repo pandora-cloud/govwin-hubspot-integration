@@ -3,11 +3,17 @@
 from __future__ import annotations
 
 import json
+import os
 
 import boto3
 import pytest
 import respx
 from moto import mock_aws
+
+# Disable FIPS endpoints in tests; moto does not intercept the
+# ``<service>-fips.<region>.amazonaws.com`` hostnames that production
+# uses, so requests would 404. Production Lambdas keep FIPS on (default).
+os.environ.setdefault("AWS_USE_FIPS_ENDPOINT", "false")
 
 from src.config import (
     ACEConfig,
@@ -41,7 +47,7 @@ def app_config() -> AppConfig:
         sync=SyncConfig(),
         ace=ACEConfig(
             catalog="Sandbox",
-            default_solution_id="S-0051246",
+            default_solution_id="S-1234567",
         ),
         environment="test",
     )

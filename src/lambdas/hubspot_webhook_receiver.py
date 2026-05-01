@@ -17,9 +17,9 @@ import os
 import time
 from typing import Any
 
-import boto3
 from botocore.exceptions import ClientError
 
+from src.aws_clients import make_client
 from src.config import load_config
 from src.lambdas._webhook_routing import classify_property_change
 from src.sync.state import SyncStateManager
@@ -45,9 +45,9 @@ def _ensure_clients(region: str) -> None:
     """Lazy-initialize boto3 clients (avoids no-region errors at import time)."""
     global _secrets_client, _sqs_client
     if _secrets_client is None:
-        _secrets_client = boto3.client("secretsmanager", region_name=region)
+        _secrets_client = make_client("secretsmanager", region)
     if _sqs_client is None:
-        _sqs_client = boto3.client("sqs", region_name=region)
+        _sqs_client = make_client("sqs", region)
 
 
 class _ConfigError(Exception):

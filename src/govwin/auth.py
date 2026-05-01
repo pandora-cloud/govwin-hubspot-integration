@@ -6,10 +6,10 @@ import json
 import logging
 import time
 
-import boto3
 import httpx
 from botocore.exceptions import ClientError
 
+from src.aws_clients import make_client
 from src.config import AppConfig
 
 logger = logging.getLogger(__name__)
@@ -25,9 +25,7 @@ class GovWinAuth:
     def __init__(self, config: AppConfig) -> None:
         self._config = config
         self._base_url = config.govwin.base_url
-        self._secrets_client = boto3.client(
-            "secretsmanager", region_name=config.aws.region
-        )
+        self._secrets_client = make_client("secretsmanager", config.aws.region)
         self._access_token: str | None = None
         self._refresh_token: str | None = None
         self._expires_at: float = 0

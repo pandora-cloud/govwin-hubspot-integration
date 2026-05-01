@@ -24,9 +24,9 @@ import os
 from datetime import UTC, datetime, timedelta  # noqa: F401 -- timedelta still used below
 from typing import Any
 
-import boto3
 from botocore.exceptions import ClientError
 
+from src.aws_clients import make_client
 from src.config import load_config
 from src.govwin.auth import GovWinAuth
 from src.govwin.client import GovWinClient
@@ -43,7 +43,7 @@ _sqs_client: Any | None = None
 def _ensure_sqs(region: str) -> Any:
     global _sqs_client
     if _sqs_client is None:
-        _sqs_client = boto3.client("sqs", region_name=region)
+        _sqs_client = make_client("sqs", region)
     return _sqs_client
 
 
