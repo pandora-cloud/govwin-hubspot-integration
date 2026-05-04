@@ -22,6 +22,23 @@ def test_naics_to_aws_industry():
     assert naics_to_aws_industry("999999") == "Other"
 
 
+def test_naics_541330_engineering_services_maps_to_professional_services():
+    """NAICS 541330 (Engineering Services) is a common federal AWS partner
+    sector. The mapping uses the 2-digit prefix (`54`), so 541330 routes to
+    Professional Services along with the rest of NAICS 54xxxx.
+    """
+    assert naics_to_aws_industry("541330") == "Professional Services"
+
+
+def test_naics_other_54_subsectors_share_professional_services():
+    """All NAICS 54xxxx codes share the Professional Services bucket.
+    Locking this in so a future "more granular for federal partners" change
+    is a deliberate decision, not an accidental drift.
+    """
+    for code in ("541330", "541410", "541512", "541611", "541715"):
+        assert naics_to_aws_industry(code) == "Professional Services", code
+
+
 def test_sanitize_html():
     assert sanitize_html("<p>Hello <b>world</b></p>") == "Hello world"
     assert sanitize_html("Plain text") == "Plain text"
