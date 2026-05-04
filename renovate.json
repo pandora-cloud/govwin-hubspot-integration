@@ -25,30 +25,50 @@
       "matchUpdateTypes": ["patch"],
       "matchPackagePatterns": ["*"],
       "vulnerabilityFixOnly": true,
-      "automerge": true
+      "automerge": true,
+      "addLabels": ["security"]
+    },
+    {
+      "description": "Terraform / HashiCorp ecosystem",
+      "matchManagers": ["terraform"],
+      "addLabels": ["terraform"]
     },
     {
       "description": "Group AWS provider + AWS-related Terraform updates together",
       "matchManagers": ["terraform"],
       "matchPackageNames": ["hashicorp/aws", "hashicorp/random"],
-      "groupName": "terraform aws ecosystem"
+      "groupName": "terraform aws ecosystem",
+      "addLabels": ["terraform"]
+    },
+    {
+      "description": "Python ecosystem (any pip / pyproject update)",
+      "matchManagers": ["pip_requirements", "pep621"],
+      "addLabels": ["python"]
     },
     {
       "description": "Group Python core libs",
       "matchManagers": ["pip_requirements", "pep621"],
       "matchPackageNames": ["pydantic", "httpx", "boto3", "tenacity", "python-dateutil"],
-      "groupName": "python runtime deps"
+      "groupName": "python runtime deps",
+      "addLabels": ["python"]
     },
     {
       "description": "Group Python dev tooling",
       "matchManagers": ["pip_requirements", "pep621"],
       "matchPackageNames": ["ruff", "mypy", "pytest", "pytest-asyncio", "respx", "moto"],
-      "groupName": "python dev tooling"
+      "groupName": "python dev tooling",
+      "addLabels": ["python", "tests"]
     },
     {
-      "description": "Group GitHub Actions updates",
+      "description": "GitHub Actions workflows",
       "matchManagers": ["github-actions"],
-      "groupName": "github actions"
+      "groupName": "github actions",
+      "addLabels": ["github-actions"]
+    },
+    {
+      "description": "Docker base images (LocalStack pin, Lambda layer build, etc.)",
+      "matchManagers": ["dockerfile", "docker-compose"],
+      "addLabels": ["docker"]
     }
   ]
 }
