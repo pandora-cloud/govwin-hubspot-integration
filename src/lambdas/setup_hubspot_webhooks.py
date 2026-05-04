@@ -71,8 +71,35 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
     if not target_url.startswith("https://"):
         raise ValueError("targetUrl must be an https URL")
 
+    # Dry-run mode skips every HubSpot mutation. Useful for an operator
+    # validating a config change ("which targetUrl would I configure, which
+    # subscriptions would I activate?") before running the live invocation.
+    dry_run = bool(event.get("dryRun") or event.get("dry_run"))
+
     secret = _load_app_secret(config.aws.hubspot_webhook_secret_name, config.aws.region)
     app_id = _resolve_app_id(secret)
+
+    if dry_run:
+        planned = [
+            {
+                "subscriptionType": sub["subscriptionType"],
+                "propertyName": sub["propertyName"],
+                "would_activate": True,
+            }
+            for sub in _SUBSCRIPTIONS
+        ]
+        logger.info(
+            "setup_hubspot_webhooks: dry-run, would configure targetUrl=%s "
+            "and register %d subscriptions",
+            target_url,
+            len(planned),
+        )
+        return {
+            "status": "dry-run",
+            "app_id": app_id,
+            "target_url": target_url,
+            "would_register": planned,
+        }
 
     created: list[dict[str, Any]] = []
     with HubSpotClient(config) as hubspot:
