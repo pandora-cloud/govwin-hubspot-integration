@@ -204,7 +204,7 @@ All configuration is managed through Terraform variables in `terraform/terraform
 | `sync_schedule` | `rate(1 hour)` | EventBridge schedule expression for sync frequency |
 | `ace_partner_company_name` | `Partner Company` (placeholder) | Your company's legal name. Surfaced to AWS Partner Central as `ExpectedCustomerSpend.TargetCompany` on every co-sell submission. **Required for production deployments** — the placeholder is harmless in Sandbox but should not appear on real submissions. |
 | `ace_default_solution_id` | (required for ACE) | AWS Partner Central Solution ID (e.g. `S-1234567`). Discover via `aws partnercentral-selling list-solutions --catalog AWS --region us-east-1`. |
-| `ace_trigger_stages` | `submit_to_aws,submitted_to_aws` | Comma-separated HubSpot deal-stage internal IDs that trigger an ACE submission. Production deployments must override this with the numeric stage IDs from the HubSpot pipeline editor (e.g. `3590200042`). See [docs/deployment-guide.md](docs/deployment-guide.md#step-9b-find-your-numeric-stage-ids). |
+| `ace_trigger_stages` | `submit_to_aws,submitted_to_aws` | Comma-separated HubSpot deal-stage internal IDs that trigger an ACE submission. Production deployments must override this with the numeric stage IDs from the HubSpot pipeline editor (e.g. `3590200042`). See [docs/deployment-guide.md](docs/deployment-guide.md#9bi-find-your-hubspot-pipeline-stage-internal-ids-ace_trigger_stages). |
 | `govwin_opp_types` | `ALL` | Opportunity types to sync: `OPP`, `BID`, `TNS`, `FBO`, `OPN`, `TOP`, or `ALL` |
 | `govwin_market` | `""` (both) | Market filter: `Federal`, `SLED`, or `""` for both |
 | `govwin_marked_version` | `2.2` | Marked-for-download filter: `2.2` (Web Services), `2` (Deltek CRM), `""` (disabled) |
