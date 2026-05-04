@@ -787,6 +787,46 @@ def _project_block(
     return project
 
 
+# HubSpot ``lifecyclestage`` -> AWS Partner Central ``LifeCycle.Stage`` map.
+# AWS publishes seven valid Stage values; the table below routes every
+# HubSpot lifecycle into one of them (or omits Stage entirely so AWS uses
+# its default for new opportunities).
+#
+# Why an explicit table instead of derive-on-the-fly:
+#   * AWS rejects unknown Stage values with ValidationException — silent
+#     defaulting hides bugs that only surface in production.
+#   * HubSpot's lifecyclestage is a free-list in custom pipelines; locking
+#     the canonical lifecycle values here prevents a renamed pipeline stage
+#     from quietly redirecting submissions.
+#   * Adding a new HubSpot lifecycle becomes a one-line table addition with
+#     a deliberate decision about which AWS Stage it represents.
+#
+# Source for the AWS Stage enum:
+# docs/reference/aws-partner-central/api-contract-audit-2026-04.md
+_LIFECYCLE_STAGE_TO_ACE_STAGE: dict[str, str] = {
+    "subscriber": "Prospect",
+    "lead": "Prospect",
+    "marketingqualifiedlead": "Qualified",
+    "salesqualifiedlead": "Qualified",
+    "opportunity": "Technical Validation",
+    "customer": "Committed",
+    "evangelist": "Committed",
+    "other": "Prospect",
+}
+
+
+def _map_lifecycle_to_ace_stage(lifecycle: str | None) -> str | None:
+    """Look up an AWS Partner Central Stage from a HubSpot lifecyclestage.
+
+    Returns ``None`` for unknown lifecycles so the caller can omit the
+    Stage field entirely (AWS defaults new opportunities to ``Prospect``).
+    Returning a defaulted value silently would mask data drift.
+    """
+    if not lifecycle:
+        return None
+    return _LIFECYCLE_STAGE_TO_ACE_STAGE.get(lifecycle.strip().lower())
+
+
 def _life_cycle_block(deal: dict[str, Any]) -> dict[str, Any]:
     """Build the LifeCycle block.
 
@@ -795,6 +835,11 @@ def _life_cycle_block(deal: dict[str, Any]) -> dict[str, Any]:
     date and the HubSpot deal carries closedate=null. Default to ~6 months
     from now in that case so AWS does not reject submission; BD can refine
     the date via UpdateOpportunity later.
+
+    LifeCycle.Stage is mapped from HubSpot ``lifecyclestage`` via the
+    explicit :data:`_LIFECYCLE_STAGE_TO_ACE_STAGE` table; unknown values
+    produce no Stage field (AWS defaults to Prospect) rather than a silent
+    misroute.
     """
     from datetime import UTC, datetime, timedelta
 
@@ -813,6 +858,9 @@ def _life_cycle_block(deal: dict[str, Any]) -> dict[str, Any]:
     next_steps = _get(deal, "govwin_ace_next_steps")
     if next_steps:
         block["NextSteps"] = str(next_steps)[:255]
+    stage = _map_lifecycle_to_ace_stage(_get(deal, "lifecyclestage"))
+    if stage:
+        block["Stage"] = stage
     return block
 
 

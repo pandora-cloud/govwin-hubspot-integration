@@ -614,3 +614,55 @@ class TestSecurityHardening:
             payload["Customer"]["Account"]["Address"]["StateOrRegion"]
             == "Dist. of Columbia"
         )
+
+
+class TestLifeCycleStageMapping:
+    """Lock in the explicit HubSpot lifecyclestage -> ACE LifeCycle.Stage table.
+
+    The mapping is centralized in _LIFECYCLE_STAGE_TO_ACE_STAGE; these tests
+    exercise the canonical lifecycles HubSpot ships with plus a few edge cases
+    so a renamed pipeline stage cannot quietly redirect submissions to AWS.
+    """
+
+    @pytest.mark.parametrize(
+        "lifecycle,expected_stage",
+        [
+            ("subscriber", "Prospect"),
+            ("lead", "Prospect"),
+            ("Lead", "Prospect"),  # case-insensitive
+            ("MARKETINGQUALIFIEDLEAD", "Qualified"),
+            ("salesqualifiedlead", "Qualified"),
+            ("opportunity", "Technical Validation"),
+            ("customer", "Committed"),
+            ("evangelist", "Committed"),
+            ("other", "Prospect"),
+        ],
+    )
+    def test_known_lifecycles_map_to_published_ace_stages(
+        self, deal, app_config, lifecycle, expected_stage
+    ):
+        deal["properties"]["lifecyclestage"] = lifecycle
+        payload = map_hubspot_deal_to_ace_create_payload(
+            deal, app_config, client_token="tok"
+        )
+        assert payload["LifeCycle"]["Stage"] == expected_stage
+
+    def test_unknown_lifecycle_omits_stage_rather_than_misroute(
+        self, deal, app_config
+    ):
+        """An unrecognized lifecycle must NOT default to a guess. Omitting
+        Stage entirely lets AWS apply its own default (Prospect) and surfaces
+        the data drift in CloudWatch logs rather than silently misrouting.
+        """
+        deal["properties"]["lifecyclestage"] = "completely-made-up-stage"
+        payload = map_hubspot_deal_to_ace_create_payload(
+            deal, app_config, client_token="tok"
+        )
+        assert "Stage" not in payload["LifeCycle"]
+
+    def test_missing_lifecycle_omits_stage(self, deal, app_config):
+        deal["properties"].pop("lifecyclestage", None)
+        payload = map_hubspot_deal_to_ace_create_payload(
+            deal, app_config, client_token="tok"
+        )
+        assert "Stage" not in payload["LifeCycle"]
