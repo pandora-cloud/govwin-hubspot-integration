@@ -249,6 +249,29 @@ class ACEMappingError(ValueError):
 
 
 def _split_csv(value: str | None) -> list[str]:
+    """Split a HubSpot multi-select property into a list of clean values.
+
+    Despite the ``_csv`` suffix, the delimiter is **semicolon**, not comma.
+    HubSpot multi-select properties (and `govwin_ace_*` checkbox groups) emit
+    semicolon-separated values; the legacy name dates from when this helper
+    handled both. Empty inputs and whitespace-only segments are filtered out
+    so the caller never has to deal with empty strings.
+
+    >>> _split_csv("a;b;c")
+    ['a', 'b', 'c']
+    >>> _split_csv("  Migration ; Modernization ;  Cost Optimization  ")
+    ['Migration', 'Modernization', 'Cost Optimization']
+    >>> _split_csv("solo")
+    ['solo']
+    >>> _split_csv("trailing;;empty;")
+    ['trailing', 'empty']
+    >>> _split_csv("")
+    []
+    >>> _split_csv(None)
+    []
+    >>> _split_csv("   ")
+    []
+    """
     if not value:
         return []
     return [segment.strip() for segment in value.split(";") if segment.strip()]
