@@ -71,12 +71,16 @@ jobs:
         run: pip-audit -r requirements.lock --disable-pip
 
   secret-scan:
-    name: Secret scan (gitleaks)
+    name: Secret scan (trufflehog)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: gitleaks/gitleaks-action@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # gitleaks-action moved to a paid model for org repos in 2024;
+      # trufflehog is free for OSS and as good or better at signal-to-noise.
+      # --only-verified suppresses unverified pattern matches so we don't drown
+      # in false positives from synthetic secrets in tests/fixtures.
+      - uses: trufflesecurity/trufflehog@main
+        with:
+          extra_args: --only-verified --fail
