@@ -4,6 +4,21 @@ All notable changes to this project are documented in this file. The format foll
 
 Future entries are generated automatically by [release-please](https://github.com/googleapis/release-please) from conventional commit messages on `main`.
 
+## [2.2.0](https://github.com/pandora-cloud/govwin-hubspot-integration/compare/v2.1.0...v2.2.0) (2026-05-04)
+
+
+### Features
+
+* **ace:** parameterize ExpectedCustomerSpend.TargetCompany ([8e8c1e2](https://github.com/pandora-cloud/govwin-hubspot-integration/commit/8e8c1e26e6f9d082d092c4f717a9796e33fdce40))
+* **security:** enforce FIPS endpoints and pin partnercentral-selling to us-east-1 ([85ce6cb](https://github.com/pandora-cloud/govwin-hubspot-integration/commit/85ce6cb22910ab3ed0c081d71bf43c78a8c8bdca))
+
+
+### Documentation
+
+* address audit blockers + merge testing docs + write operations runbook ([a2920d8](https://github.com/pandora-cloud/govwin-hubspot-integration/commit/a2920d836165f6c5a9e0e760e463b37503e02255))
+* extended HubSpot-to-ACE field mapping matrix ([c9da2ab](https://github.com/pandora-cloud/govwin-hubspot-integration/commit/c9da2ab271d6579bcf82c94a125e1526199b82dd))
+* field-mapping reference scaffold (GovWin -&gt; HubSpot -&gt; ACE) ([6a3ef40](https://github.com/pandora-cloud/govwin-hubspot-integration/commit/6a3ef40fad1b9459493053110a203b5da955fa3b))
+
 ## [Unreleased]
 
 ### Added
