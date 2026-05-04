@@ -4,6 +4,41 @@ All notable changes to this project are documented in this file. The format foll
 
 Future entries are generated automatically by [release-please](https://github.com/googleapis/release-please) from conventional commit messages on `main`.
 
+## [2.2.0](https://github.com/pandora-cloud/govwin-hubspot-integration/compare/v2.1.0...v2.2.0) (2026-05-04)
+
+
+### Features
+
+* **ace:** explicit HubSpot lifecyclestage -&gt; ACE LifeCycle.Stage table ([a7d707c](https://github.com/pandora-cloud/govwin-hubspot-integration/commit/a7d707c8698da398f4f5564d5981e6917702f370)), closes [#7](https://github.com/pandora-cloud/govwin-hubspot-integration/issues/7)
+* **ace:** parameterize ExpectedCustomerSpend.TargetCompany ([8e8c1e2](https://github.com/pandora-cloud/govwin-hubspot-integration/commit/8e8c1e26e6f9d082d092c4f717a9796e33fdce40))
+* **security:** enforce FIPS endpoints and pin partnercentral-selling to us-east-1 ([85ce6cb](https://github.com/pandora-cloud/govwin-hubspot-integration/commit/85ce6cb22910ab3ed0c081d71bf43c78a8c8bdca))
+* **setup_hubspot_webhooks:** add dryRun mode for config-change validation ([cdf55b4](https://github.com/pandora-cloud/govwin-hubspot-integration/commit/cdf55b4f5abb1a7d5d21247c65c15d76d97dc006)), closes [#2](https://github.com/pandora-cloud/govwin-hubspot-integration/issues/2)
+
+
+### Documentation
+
+* address audit blockers + merge testing docs + write operations runbook ([a2920d8](https://github.com/pandora-cloud/govwin-hubspot-integration/commit/a2920d836165f6c5a9e0e760e463b37503e02255))
+* extended HubSpot-to-ACE field mapping matrix ([c9da2ab](https://github.com/pandora-cloud/govwin-hubspot-integration/commit/c9da2ab271d6579bcf82c94a125e1526199b82dd))
+* field-mapping reference scaffold (GovWin -&gt; HubSpot -&gt; ACE) ([6a3ef40](https://github.com/pandora-cloud/govwin-hubspot-integration/commit/6a3ef40fad1b9459493053110a203b5da955fa3b))
+
+
+### CI / Build
+
+* add fips job + commit-signing setup script + readme anchor fix ([40706c1](https://github.com/pandora-cloud/govwin-hubspot-integration/commit/40706c1990d9cbf455815a8d480d2d996ddbc0fd))
+* drop duplicate --fail from trufflehog extra_args (action already passes it) ([6e7f60d](https://github.com/pandora-cloud/govwin-hubspot-integration/commit/6e7f60d93fe2a8c7adad769c024cbc26a4f5efe9))
+* **release-please:** repair workflow + add config + bump pyproject version to 2.1.0 ([e332bdc](https://github.com/pandora-cloud/govwin-hubspot-integration/commit/e332bdc72d472418d4a90f76550bec277cf5b6f7))
+* renovate auto-labels per ecosystem (terraform / python / actions / docker) ([95f49e0](https://github.com/pandora-cloud/govwin-hubspot-integration/commit/95f49e0bf5892def16b3e89fe6a7dcdcdb5e53f9)), closes [#8](https://github.com/pandora-cloud/govwin-hubspot-integration/issues/8)
+* replace gitleaks-action with trufflehog for secret scanning ([7d7c633](https://github.com/pandora-cloud/govwin-hubspot-integration/commit/7d7c63383159d19204e6c014a78e29eca3c7c0cc))
+* supply-chain workflows + pre-commit + renovate + dependabot ([0cbfe3b](https://github.com/pandora-cloud/govwin-hubspot-integration/commit/0cbfe3b7161d42fc8c33075a529e2f12e550be7a))
+
+
+### Tests
+
+* **ace:** doctest the _split_csv helper and wire doctest runner into pytest ([ba45b4b](https://github.com/pandora-cloud/govwin-hubspot-integration/commit/ba45b4bfdf31d811a77f03f026f5dc9afd8664b0)), closes [#4](https://github.com/pandora-cloud/govwin-hubspot-integration/issues/4)
+* hubspot signature fixture for offline development ([8835afb](https://github.com/pandora-cloud/govwin-hubspot-integration/commit/8835afbbb9569131b09ea66c4912cba2caf75bf6)), closes [#9](https://github.com/pandora-cloud/govwin-hubspot-integration/issues/9)
+* **mapping:** lock in NAICS 541330 -&gt; Professional Services routing ([2a85794](https://github.com/pandora-cloud/govwin-hubspot-integration/commit/2a85794afeb2f68b4e5a582c67ed40888a4198af)), closes [#1](https://github.com/pandora-cloud/govwin-hubspot-integration/issues/1)
+* scripts/fault_inject.py exercises DLQ + webhook + EventBridge + SNS paths ([5c114ee](https://github.com/pandora-cloud/govwin-hubspot-integration/commit/5c114ee8847a3d6a85115a8a40078f0f7df390f5))
+
 ## [Unreleased]
 
 ### Added
