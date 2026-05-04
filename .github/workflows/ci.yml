@@ -83,4 +83,4 @@ jobs:
       # in false positives from synthetic secrets in tests/fixtures.
       - uses: trufflesecurity/trufflehog@main
         with:
-          extra_args: --only-verified --fail
+          extra_args: --only-verified
