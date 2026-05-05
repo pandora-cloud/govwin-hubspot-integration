@@ -183,6 +183,30 @@ class TestApplyDelta:
         result = _run(_event(_record("amount", "")), ace, state, hubspot)
         assert result["results"][0]["status"] == "skipped"
 
+    def test_marketing_source_marketing_activity_keeps_companions(self):
+        """Source='Marketing Activity' is the only value that keeps
+        companion fields. Audit-trail for AWS validation rules.
+        """
+        ace, state, hubspot = _patches()
+        result = _run(
+            _event(_record("govwin_ace_marketing_source", "Marketing Activity")),
+            ace, state, hubspot,
+        )
+        assert result["results"][0]["status"] == "updated"
+        body = ace.update_with_retry.call_args.kwargs["updates"]
+        assert body["Marketing"]["Source"] == "Marketing Activity"
+
+    def test_marketing_source_explicit_none_strips_companions(self):
+        """When Source is 'None', AWS rejects companion fields. Strip them."""
+        ace, state, hubspot = _patches()
+        result = _run(
+            _event(_record("govwin_ace_marketing_source", "None")),
+            ace, state, hubspot,
+        )
+        assert result["results"][0]["status"] == "updated"
+        body = ace.update_with_retry.call_args.kwargs["updates"]
+        assert body["Marketing"] == {"Source": "None"}
+
 
 # ---------------------------------------------------------------------------
 # description: re-fetch + padding behaviors

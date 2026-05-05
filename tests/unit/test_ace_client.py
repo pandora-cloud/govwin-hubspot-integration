@@ -170,3 +170,65 @@ def test_update_with_retry_raises_when_lmd_missing(
     with pytest.raises(ACEAPIError) as exc:
         ace.update_with_retry("O1", {"a": "b"})
     assert exc.value.code == "MissingLastModifiedDate"
+
+
+class TestScrubForUpdateMarketing:
+    """Locks AWS's evolving Marketing rules into the scrub_for_update output.
+
+    Two AWS-side constraints collide on UpdateOpportunity:
+      1. Marketing.Source is required on every Update (introduced 2026-05;
+         see GitHub #19).
+      2. Companion Marketing fields (UseCases, AwsFundingUsed, CampaignName,
+         Channels) are rejected when Source is not "Marketing Activity".
+
+    The scrub must emit a Marketing block with a valid Source and strip
+    companions whenever Source is not "Marketing Activity".
+    """
+
+    def test_missing_marketing_block_gets_default_source(self):
+        from src.ace.client import ACEClient
+        result = ACEClient.scrub_for_update({"Customer": {"Account": {"Industry": "Other"}}})
+        assert result["Marketing"] == {"Source": "None"}
+
+    def test_marketing_with_empty_source_emits_none(self):
+        from src.ace.client import ACEClient
+        result = ACEClient.scrub_for_update({"Marketing": {"Source": ""}})
+        assert result["Marketing"] == {"Source": "None"}
+
+    def test_marketing_with_explicit_none_source_strips_companions(self):
+        from src.ace.client import ACEClient
+        result = ACEClient.scrub_for_update({
+            "Marketing": {
+                "Source": "None",
+                "UseCases": ["Migration"],
+                "CampaignName": "Q3 GovCloud Push",
+                "AwsFundingUsed": "Yes",
+            }
+        })
+        assert result["Marketing"] == {"Source": "None"}
+
+    def test_marketing_with_marketing_activity_keeps_companions(self):
+        from src.ace.client import ACEClient
+        result = ACEClient.scrub_for_update({
+            "Marketing": {
+                "Source": "Marketing Activity",
+                "UseCases": ["Migration"],
+                "CampaignName": "Q3 GovCloud Push",
+                "AwsFundingUsed": "Yes",
+            }
+        })
+        assert result["Marketing"]["Source"] == "Marketing Activity"
+        assert result["Marketing"]["UseCases"] == ["Migration"]
+        assert result["Marketing"]["CampaignName"] == "Q3 GovCloud Push"
+        assert result["Marketing"]["AwsFundingUsed"] == "Yes"
+
+    def test_marketing_other_valid_source_strips_companions(self):
+        """If AWS adds a new Source enum that is neither None nor Marketing
+        Activity (e.g. 'Direct Sales'), strip companions defensively rather
+        than guess at AWS's coupling rules.
+        """
+        from src.ace.client import ACEClient
+        result = ACEClient.scrub_for_update({
+            "Marketing": {"Source": "Some Future Source", "UseCases": ["X"]}
+        })
+        assert result["Marketing"] == {"Source": "Some Future Source"}

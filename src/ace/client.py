@@ -377,13 +377,34 @@ class ACEClient:
                 else:
                     customer.pop("Contacts", None)
 
+        # Marketing handling. Two AWS-side rules collide here:
+        #
+        # 1. UpdateOpportunity REQUIRES Marketing.Source on every call
+        #    (introduced 2026-05; surfaced in sandbox smoke as
+        #    REQUIRED_FIELD_MISSING marketing.source). The Marketing
+        #    block can no longer be dropped from the payload.
+        #
+        # 2. AWS still REJECTS companion Marketing fields (UseCases,
+        #    AwsFundingUsed, CampaignName, Channel) when Source is
+        #    anything other than "Marketing Activity".
+        #
+        # The reconciliation: always emit Marketing.Source. When Source
+        # is empty or "None" (no marketing context), strip companion
+        # fields and emit just {Source: "None"} so AWS sees a valid
+        # block without rejected companions.
         marketing = scrubbed.get("Marketing")
-        if isinstance(marketing, dict):
-            source = marketing.get("Source")
-            if source in (None, "", "None"):
-                # AWS rejects companion fields when Source is not
-                # "Marketing Activity". Drop the whole block.
-                scrubbed.pop("Marketing", None)
+        if not isinstance(marketing, dict):
+            marketing = {}
+        source = marketing.get("Source")
+        if source in (None, ""):
+            source = "None"
+        if source != "Marketing Activity":
+            # Strip companion fields that AWS rejects when Source is not
+            # "Marketing Activity". Keeping Source itself is required.
+            marketing = {"Source": source}
+        else:
+            marketing = {**marketing, "Source": source}
+        scrubbed["Marketing"] = marketing
 
         return scrubbed
 

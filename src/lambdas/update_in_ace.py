@@ -194,10 +194,16 @@ def _apply_delta(
                 marketing[aws_field] = text
             else:
                 marketing.pop(aws_field, None)
-        # AWS rejects companion Marketing fields when Source is None / unset.
-        # If Source has been cleared, drop the whole block to avoid that.
-        if marketing.get("Source") in (None, "", "None"):
-            payload.pop("Marketing", None)
+        # Two AWS rules: (1) Marketing.Source is REQUIRED on every
+        # UpdateOpportunity (2026-05+); (2) companion fields are
+        # rejected when Source is not "Marketing Activity". When the
+        # operator clears Source, emit just {Source: "None"} so the
+        # required field is present without forbidden companions.
+        source = marketing.get("Source")
+        if source in (None, "", "None"):
+            payload["Marketing"] = {"Source": "None"}
+        elif source != "Marketing Activity":
+            payload["Marketing"] = {"Source": source}
         else:
             payload["Marketing"] = marketing
         return True
