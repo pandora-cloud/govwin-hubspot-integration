@@ -34,6 +34,6 @@ Three reasons:
 
 ## Provenance of pre-2026-05-04 commits
 
-Commits made before 2026-05-04 included `Co-Authored-By: Claude Opus 4.6 (1M context)` trailers. On 2026-05-04 those trailers were removed from the public-repository commit history via `git filter-repo` ahead of the public launch, after consideration of how the audience reads such trailers (see [GitHub issue #21](https://github.com/pandora-cloud/govwin-hubspot-integration/issues/21) for the discussion). The actual code, code review, and accountability model for those commits is unchanged: the human committer reviewed every line, validated every AWS API call, and tested the result in Sandbox.
+Commits made before 2026-05-04 included `Co-Authored-By: Claude Opus 4.6 (1M context)` trailers. On 2026-05-04 those trailers were removed from the public-repository commit history via `git filter-repo` ahead of the public launch, after consideration of how the audience reads such trailers (see [GitHub issue #22](https://github.com/pandora-cloud/govwin-hubspot-integration/issues/22) for the rationale). The actual code, code review, and accountability model for those commits is unchanged: the human committer reviewed every line, validated every AWS API call, and tested the result in Sandbox.
 
 This file IS the audit trail. Future commits use the framing in this document — AI as a productivity tool, the human as accountable.
