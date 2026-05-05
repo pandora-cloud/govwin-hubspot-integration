@@ -4,6 +4,48 @@ All notable changes to this project are documented in this file. The format foll
 
 Future entries are generated automatically by [release-please](https://github.com/googleapis/release-please) from conventional commit messages on `main`.
 
+## [2.2.0](https://github.com/pandora-cloud/govwin-hubspot-integration/compare/v2.1.0...v2.2.0) (2026-05-05)
+
+
+### Features
+
+* **ace:** explicit HubSpot lifecyclestage -&gt; ACE LifeCycle.Stage table ([dbd9eec](https://github.com/pandora-cloud/govwin-hubspot-integration/commit/dbd9eecd7ce1f45b7b4b6d9bd2cd89236f6de9e5)), closes [#7](https://github.com/pandora-cloud/govwin-hubspot-integration/issues/7)
+* **ace:** parameterize ExpectedCustomerSpend.TargetCompany ([05155c9](https://github.com/pandora-cloud/govwin-hubspot-integration/commit/05155c9e95a179a8a514d9ea3b1a437ab329421f))
+* **security:** enforce FIPS endpoints and pin partnercentral-selling to us-east-1 ([010154b](https://github.com/pandora-cloud/govwin-hubspot-integration/commit/010154bcc53e01555af383265ab0d61b2639faa5))
+* **setup_hubspot_webhooks:** add dryRun mode for config-change validation ([831d5a3](https://github.com/pandora-cloud/govwin-hubspot-integration/commit/831d5a3f869374f0880e72f3bbe1c1a759a5f48c)), closes [#2](https://github.com/pandora-cloud/govwin-hubspot-integration/issues/2)
+
+
+### Bug Fixes
+
+* **ace:** always emit Marketing.Source on UpdateOpportunity payloads ([8f51f42](https://github.com/pandora-cloud/govwin-hubspot-integration/commit/8f51f42ef46b482c82431165cd63ac6832d92695)), closes [#19](https://github.com/pandora-cloud/govwin-hubspot-integration/issues/19)
+
+
+### Documentation
+
+* address audit blockers + merge testing docs + write operations runbook ([cc14bbe](https://github.com/pandora-cloud/govwin-hubspot-integration/commit/cc14bbe86bc934b5b5ac31337f6a05998d8af6f3))
+* AI tooling disclosure (AI_USE.md) ([b437b9c](https://github.com/pandora-cloud/govwin-hubspot-integration/commit/b437b9c6f875c017196555a929936891d115b57a))
+* **ai_use:** correct cross-link to discussion issue [#22](https://github.com/pandora-cloud/govwin-hubspot-integration/issues/22) ([120357b](https://github.com/pandora-cloud/govwin-hubspot-integration/commit/120357b4be1b082baee3e05d3140d004ccb63de6))
+* extended HubSpot-to-ACE field mapping matrix ([33e6b49](https://github.com/pandora-cloud/govwin-hubspot-integration/commit/33e6b491ba223ab483db8cdd69345109e512f256))
+* field-mapping reference scaffold (GovWin -&gt; HubSpot -&gt; ACE) ([9d8b4d5](https://github.com/pandora-cloud/govwin-hubspot-integration/commit/9d8b4d5b157d02667b6068e9cf0f3fb3ec080783))
+
+
+### CI / Build
+
+* add fips job + commit-signing setup script + readme anchor fix ([7639b01](https://github.com/pandora-cloud/govwin-hubspot-integration/commit/7639b01359d81d9579b2749481dcdb255dbdfd64))
+* drop duplicate --fail from trufflehog extra_args (action already passes it) ([7efad69](https://github.com/pandora-cloud/govwin-hubspot-integration/commit/7efad692f06dc8688107e507c1ca31104fe8839e))
+* **release-please:** repair workflow + add config + bump pyproject version to 2.1.0 ([e5a5614](https://github.com/pandora-cloud/govwin-hubspot-integration/commit/e5a5614a2bfbebd64e37e18a43cd61d3aa262190))
+* renovate auto-labels per ecosystem (terraform / python / actions / docker) ([b868f8c](https://github.com/pandora-cloud/govwin-hubspot-integration/commit/b868f8c817b919fac924b0f421a093d83f9e977d)), closes [#8](https://github.com/pandora-cloud/govwin-hubspot-integration/issues/8)
+* replace gitleaks-action with trufflehog for secret scanning ([39dd677](https://github.com/pandora-cloud/govwin-hubspot-integration/commit/39dd6775c39e817b6bac3e9a7646e77223331def))
+* supply-chain workflows + pre-commit + renovate + dependabot ([ce21948](https://github.com/pandora-cloud/govwin-hubspot-integration/commit/ce2194815e3c3b00ca50736d39264bb5b941dc06))
+
+
+### Tests
+
+* **ace:** doctest the _split_csv helper and wire doctest runner into pytest ([9257d8d](https://github.com/pandora-cloud/govwin-hubspot-integration/commit/9257d8d9386c54321a28766dd25bf8bcd07805fc)), closes [#4](https://github.com/pandora-cloud/govwin-hubspot-integration/issues/4)
+* hubspot signature fixture for offline development ([7c4cf55](https://github.com/pandora-cloud/govwin-hubspot-integration/commit/7c4cf559dd214eace53958d91a28b967456e0cdc)), closes [#9](https://github.com/pandora-cloud/govwin-hubspot-integration/issues/9)
+* **mapping:** lock in NAICS 541330 -&gt; Professional Services routing ([6552d69](https://github.com/pandora-cloud/govwin-hubspot-integration/commit/6552d693e5e433c271433f470fa8a56216310c70)), closes [#1](https://github.com/pandora-cloud/govwin-hubspot-integration/issues/1)
+* scripts/fault_inject.py exercises DLQ + webhook + EventBridge + SNS paths ([04d69ac](https://github.com/pandora-cloud/govwin-hubspot-integration/commit/04d69acc913b1c476be24efa27141bb0e8aed023))
+
 ## [Unreleased]
 
 ### Added

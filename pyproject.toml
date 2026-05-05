@@ -1,6 +1,6 @@
 [project]
 name = "govwin-hubspot-integration"
-version = "2.1.0"
+version = "2.2.0"
 description = "Sync government contracting opportunities from Deltek GovWin IQ into HubSpot CRM"
 readme = "README.md"
 license = {text = "Apache-2.0"}
